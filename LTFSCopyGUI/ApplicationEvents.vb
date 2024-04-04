@@ -1,5 +1,11 @@
-﻿Imports Microsoft.VisualBasic.ApplicationServices
-
+﻿Imports System.Collections.ObjectModel
+Imports System.IO
+Imports Microsoft.VisualBasic.ApplicationServices
+Imports Prometheus
+Imports CsvHelper
+Imports System.Globalization
+Imports SchwabenCode.QuickIO
+Imports System.Windows.Forms
 Namespace My
     ' 以下事件可用于 MyApplication: 
     ' Startup:应用程序启动时在创建启动窗体之前引发。
@@ -7,7 +13,8 @@ Namespace My
     ' UnhandledException:在应用程序遇到未经处理的异常时引发。
     ' StartupNextInstance:在启动单实例应用程序且应用程序已处于活动状态时引发。 
     ' NetworkAvailabilityChanged:在连接或断开网络连接时引发。
-    Partial Friend Class MyApplication
+    Class MyApplication
+
         <System.Runtime.InteropServices.DllImport("kernel32.dll")>
         Public Shared Function AllocConsole() As Boolean
 
@@ -40,7 +47,182 @@ Namespace My
                 End
             End If
         End Sub
-        Private Sub MyApplication_Startup(sender As Object, e As StartupEventArgs) Handles Me.Startup
+        '读取文件速度测试
+        Private Sub ReadFileSpeed(filePath As String)
+
+            Dim BufferSize As Integer = 16777216
+            Dim fs = New IO.FileStream(filePath, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read, BufferSize, True)
+            Dim bytesRead As Integer
+
+            Dim PreReadBuffer(BufferSize - 1) As Byte
+            Do
+                bytesRead = fs.Read(PreReadBuffer, 0, BufferSize)
+                Metric.OperationCounter.WithLabels(("read_file")).Inc(bytesRead)
+                ' 处理读取到的数据
+                If bytesRead > 0 Then
+                    ' 在这里可以处理读取到的数据
+                End If
+            Loop While bytesRead > 0
+
+            ' 关闭文件流
+            fs.Close()
+        End Sub
+        Private Shared Function ReadEfu(efuFilePath As String) As DataTable
+            Dim dt As New DataTable()
+
+            Using textReader As New StreamReader(efuFilePath)
+                Using csv As New CsvReader(textReader, CultureInfo.InvariantCulture)
+                    csv.Read()
+                    csv.ReadHeader()
+                    For Each header In csv.HeaderRecord
+                        dt.Columns.Add(header)
+                    Next
+                    While csv.Read()
+                        Dim row = dt.NewRow()
+                        For Each column As DataColumn In dt.Columns
+                            row(column.ColumnName) = csv.GetField(column.DataType, column.ColumnName)
+                        Next
+                        dt.Rows.Add(row)
+                    End While
+                End Using
+            End Using
+            Return dt
+        End Function
+        '挂载磁带
+        Private Sub MountTape(tapedrive As String)
+            Dim DriveLoc As String = tapedrive
+            If DriveLoc = "" Then DriveLoc = "\\.\TAPE0"
+            Dim MountPath As String = DriveLoc.Split({"\"}, StringSplitOptions.RemoveEmptyEntries).ToList.Last
+            Static svc As New LTFSWriter.LTFSMountFuseSvc()
+            svc.TapeDrive = DriveLoc
+
+            Task.Run(
+                Sub()
+                    svc.Run()
+                End Sub)
+
+            MessageBox.Show($"Mounted as \\ltfs\{svc.MountPath}{vbCrLf}Press OK to unmount")
+
+            '卸载
+            svc.Stop()
+        End Sub
+        '读取文件速度测试
+        Private Sub WriteTapeFileWithEfuSpeed(efuFilePath As String, tapedrive As String)
+            Dim sense As Byte()
+            Dim BufferSize As Integer = 4096
+            Dim PreReadBuffer(BufferSize - 1) As Byte
+            Dim bytesRead As Integer
+            '            TapeUtils.Locate(tapedrive, 0, 1, TapeUtils.LocateDestType.EOD)
+            Dim dt = ReadEfu(efuFilePath)
+            For i As Integer = 0 To dt.Rows.Count - 1
+                Metric.OperationCounter.WithLabels(("file_count")).Inc()
+                Dim filePath = dt.Rows(i)("Filename")
+                Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} open file " & i & " " & filePath)
+                '                Dim fs = New IO.FileStream(filePath, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read, BufferSize, False)
+                Dim fs = QuickIOFile.OpenRead("\\?\" + filePath)
+                Do
+                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} read file " & i & " " & filePath)
+                    bytesRead = fs.Read(PreReadBuffer, 0, BufferSize)
+                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} readed file " & i & " " & filePath)
+                    Metric.OperationCounter.WithLabels(("read_file")).Inc(bytesRead)
+                    Exit Do
+                    ' 处理读取到的数据
+                    If bytesRead > 0 Then
+                        Dim succ As Boolean
+                        Dim offset As Integer = 0 ' 数据偏移量
+                        Dim plabelblocksize = 524288
+                        Dim buffer(plabelblocksize - 1) As Byte
+                        While offset < bytesRead ' 只处理实际读取的字节数
+
+                            ' 将 PreReadBuffer 中的数据复制到 buffer 中
+                            Array.Copy(PreReadBuffer, offset, buffer, 0, Math.Min(plabelblocksize, bytesRead - offset))
+
+                            sense = TapeUtils.Write(tapedrive, buffer, Math.Min(plabelblocksize, bytesRead - offset))
+                            Metric.OperationCounter.WithLabels(("write_file")).Inc(plabelblocksize)
+                            If ((sense(2) >> 6) And &H1) = 1 Then
+                                If (sense(2) And &HF) = 13 Then
+                                    '磁带已满                                           
+                                    Console.WriteLine("磁带已满")
+                                Else
+                                    '磁带即将写满
+                                    Console.WriteLine("磁带即将写满")
+                                End If
+                            ElseIf sense(2) And &HF <> 0 Then
+                                '写入出错
+                                Console.WriteLine("写入出错")
+                            Else
+                                succ = True
+                            End If
+                            offset += plabelblocksize ' 更新偏移量
+                        End While
+                    End If
+
+                Loop While bytesRead > 0
+
+                ' 关闭文件流
+                fs.Close()
+                Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} close file " & i & " " & filePath)
+
+
+            Next
+
+
+
+        End Sub
+        '读取文件速度测试
+        Private Sub WriteTapeFileSpeed(filePath As String, tapedrive As String)
+            Dim sense As Byte()
+            TapeUtils.Locate(tapedrive, 0, 1, TapeUtils.LocateDestType.EOD)
+            Dim BufferSize As Integer = 16777216
+            Dim fs = New IO.FileStream(filePath, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read, BufferSize, True)
+            Dim bytesRead As Integer
+            Dim PreReadBuffer(BufferSize - 1) As Byte
+            Do
+                bytesRead = fs.Read(PreReadBuffer, 0, BufferSize)
+                Metric.OperationCounter.WithLabels(("read_file")).Inc(bytesRead)
+                ' 处理读取到的数据
+                If bytesRead > 0 Then
+                    Dim succ As Boolean
+                    Dim offset As Integer = 0 ' 数据偏移量
+                    Dim plabelblocksize = 524288
+                    Dim buffer(plabelblocksize - 1) As Byte
+                    While offset < bytesRead ' 只处理实际读取的字节数
+
+                        ' 将 PreReadBuffer 中的数据复制到 buffer 中
+                        Array.Copy(PreReadBuffer, offset, buffer, 0, Math.Min(plabelblocksize, bytesRead - offset))
+
+                        sense = TapeUtils.Write(tapedrive, buffer, Math.Min(plabelblocksize, bytesRead - offset))
+                        Metric.OperationCounter.WithLabels(("write_file")).Inc(plabelblocksize)
+                        If ((sense(2) >> 6) And &H1) = 1 Then
+                            If (sense(2) And &HF) = 13 Then
+                                '磁带已满                                           
+                                Console.WriteLine("磁带已满")
+                            Else
+                                '磁带即将写满
+                                Console.WriteLine("磁带即将写满")
+                            End If
+                        ElseIf sense(2) And &HF <> 0 Then
+                            '写入出错
+                            Console.WriteLine("写入出错")
+                        Else
+                            succ = True
+                        End If
+                        offset += plabelblocksize ' 更新偏移量
+                    End While
+                End If
+
+            Loop While bytesRead > 0
+
+            ' 关闭文件流
+            fs.Close()
+        End Sub
+        Public Sub StartUp(args As String())
+            Dim argsCollection As New ReadOnlyCollection(Of String)(args)
+            Dim startupArgs As New StartupEventArgs(argsCollection)
+            MyApplication_Startup(Nothing, startupArgs)
+        End Sub
+
+        Private Sub MyApplication_Startup(sender As Object, e As StartupEventArgs)
             If IO.File.Exists(IO.Path.Combine(System.Windows.Forms.Application.StartupPath, "lang.ini")) Then
                 Try
                     Dim lang As String = IO.File.ReadAllText(IO.Path.Combine(System.Windows.Forms.Application.StartupPath, "lang.ini"))
@@ -97,6 +279,20 @@ Namespace My
                     Select Case param(i)
                         Case "-s"
                             IndexRead = False
+                        Case "-readtest"
+                            Dim server As MetricServer = New MetricServer(My.Settings.LTFSWriter_PrometheusPort)
+                            Try
+                                CheckUAC(e)
+                                server.Start()
+                            Catch ex As Exception
+                                Console.WriteLine(ex.Message)
+                                MessageBox.Show(ex.Message)
+                            End Try
+                            StackTraceAnalysis.StartServer()
+                            '                            ReadFileSpeed("M:\\parlorpcbakdpan\\VHD\\PARLOR-PC.VHD")
+                            '                            WriteTapeFileSpeed("M:\\parlorpcbakdpan\\VHD\\PARLOR-PC.VHD","\\.\TAPE0")
+                            WriteTapeFileWithEfuSpeed("W:\\临时Vhd\\M盘小文件读取测试.efu", "\\.\TAPE0")
+'                             MountTape("\\.\TAPE0")
                         Case "-t"
                             CheckUAC(e)
                             If i < param.Count - 1 Then
@@ -110,10 +306,22 @@ Namespace My
                                 Else
 
                                 End If
+                                If My.Settings.LTFSWriter_PrometheusPort > 0 Then
+                                    Dim server As MetricServer = New MetricServer("localhost", Convert.ToInt32(My.Settings.LTFSWriter_PrometheusPort))
+                                    Try
+                                        server.Start()
+                                    Catch ex As Exception
+                                        Console.WriteLine(ex.Message)
+                                        MessageBox.Show(ex.Message)
+                                    End Try
+                                    StackTraceAnalysis.StartServer()
+                                End If
+
                                 Dim LWF As New LTFSWriter With {.TapeDrive = TapeDrive, .OfflineMode = Not IndexRead}
                                 If Not IndexRead Then LWF.ExtraPartitionCount = 1
                                 Me.MainForm = LWF
                                 Exit For
+
                             End If
                         Case "-f"
                             If i < param.Count - 1 Then
@@ -366,6 +574,9 @@ dataDir:{dataDir}
                     End Select
                 Next
             End If
+           
+            System.Windows.Forms.Application.EnableVisualStyles()
+            System.Windows.Forms.Application.Run(Me.MainForm)
         End Sub
     End Class
 End Namespace

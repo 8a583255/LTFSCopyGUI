@@ -368,6 +368,7 @@ Public Class HashTaskWindow
                 fdelta = tval - t_last
                 t_last = tval
             End If
+
             SpeedHistory.Add(ddelta / 1048576)
             FileRateHistory.Add(fdelta)
             While SpeedHistory.Count > PMaxNum

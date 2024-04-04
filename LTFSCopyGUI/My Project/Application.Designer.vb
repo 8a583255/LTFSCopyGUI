@@ -31,7 +31,7 @@ Namespace My
         End Sub
         
         <Global.System.Diagnostics.DebuggerStepThroughAttribute()>  _
-        Protected Overrides Sub OnCreateMainForm()
+        Protected Sub OnCreateMainForm()
             Me.MainForm = Global.LTFSCopyGUI.Form1
         End Sub
     End Class

@@ -64,6 +64,7 @@ Public Class ltfsindex
         End Class
         <Xml.Serialization.XmlIgnore> Public fullpath As String
         <Xml.Serialization.XmlIgnore> Public Selected As Boolean = True
+        <Xml.Serialization.XmlIgnore> Public WriteedOffset As Long = 0
         <Xml.Serialization.XmlIgnore> Public WrittenBytes As Long = 0
         <Xml.Serialization.XmlIgnore> Public TempObj As Object
         <Xml.Serialization.XmlIgnore> Public SHA1ForeColor As Color = Color.Black
@@ -398,9 +399,17 @@ Public Class ltfsindex
         Dim sin As New IO.StreamReader(FileName)
         Dim soutx As New IO.StreamWriter(tmpf, False, New Text.UTF8Encoding(False))
         Dim result As ltfsindex
+        Dim line as Int64 =0
+        
         Try
             While Not sin.EndOfStream
                 Dim s As String = sin.ReadLine()
+                line=line+1
+'                if line>4394960 AndAlso line <4395999 then
+'                    Console.WriteLine("s:" & s)
+'                    Console.WriteLine("s:" & s.Replace(Char.ConvertFromUtf32(&H1E), ">").Replace(Char.ConvertFromUtf32(&H3C), ""))
+'                    s = s.Replace(Char.ConvertFromUtf32(&H1E), ">").Replace(Char.ConvertFromUtf32(&H3C), "<")
+'                end if
                 s = s.Replace("<directory>", "<_directory><directory>")
                 s = s.Replace("</directory>", "</directory></_directory>")
                 s = s.Replace("<file>", "<_file><file>")

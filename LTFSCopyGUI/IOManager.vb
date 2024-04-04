@@ -587,6 +587,7 @@ Public Class IOManager
         Private Property Lock As New Object
         Public Property StopFlag As Boolean = False
         Private Property thStarted As Boolean = False
+        Public Shared TotalQueueCount As Integer = 0
         Structure QueueBlock
             Public block As Byte()
             Public Len As Integer
@@ -600,17 +601,31 @@ Public Class IOManager
                             Dim blk As QueueBlock
                             SyncLock q
                                 blk = q.Dequeue()
+                                Threading.Interlocked.Decrement(TotalQueueCount)
+                                
                             End SyncLock
                             With blk
                                 If .Len = -1 Then .Len = .block.Length
                                 Dim md5task As Task = Task.Run(Sub()
+                                                                  
+                                    Dim startTimestamp3 = DateTime.Now
                                                                    md5.TransformBlock(.block, 0, .Len, .block, 0)
+                                    Dim duration3 As TimeSpan = DateTime.Now - startTimestamp3
+                                    Metric.FileOperationDurationHistogram.WithLabels("", "async_md5_TransformBlock", "").Observe(duration3.TotalMilliseconds)
+                                    Metric.FileOperationDurationSummary.WithLabels("", "async_md5_TransformBlock", "").Observe(duration3.TotalMilliseconds)
                                                                End Sub)
                                 Dim sha1task As Task = Task.Run(Sub()
+                                                                  
+                                    Dim startTimestamp3 = DateTime.Now
                                                                     sha1.TransformBlock(.block, 0, .Len, .block, 0)
+                                    Dim duration3 As TimeSpan = DateTime.Now - startTimestamp3
+                                    Metric.FileOperationDurationHistogram.WithLabels("", "async_sha1_TransformBlock", "").Observe(duration3.TotalMilliseconds)
+                                    Metric.FileOperationDurationSummary.WithLabels("", "async_sha1_TransformBlock", "").Observe(duration3.TotalMilliseconds)
                                                                 End Sub)
+
                                 sha1task.Wait()
                                 md5task.Wait()
+      
                             End With
                             blk.block = Nothing
                         End While
@@ -631,13 +646,25 @@ Public Class IOManager
             SyncLock Lock
                 If Len = -1 Then Len = block.Length
                 Dim sha1task As Task = Task.Run(Sub()
+                                                    Dim startTimestamp3 = DateTime.Now
                                                     sha1.TransformBlock(block, 0, Len, block, 0)
+                                                    Dim duration3 As TimeSpan = DateTime.Now - startTimestamp3
+                                                    Metric.FileOperationDurationHistogram.WithLabels("", "sync_sha1_TransformBlock", "").Observe(duration3.TotalMilliseconds)
+                                                    Metric.FileOperationDurationSummary.WithLabels("", "sync_sha1_TransformBlock", "").Observe(duration3.TotalMilliseconds)
+                                                  
                                                 End Sub)
                 Dim md5task As Task = Task.Run(Sub()
+                                                Dim startTimestamp3 = DateTime.Now
                                                    md5.TransformBlock(block, 0, Len, block, 0)
+                                                Dim duration3 As TimeSpan = DateTime.Now - startTimestamp3
+                                                Metric.FileOperationDurationHistogram.WithLabels("", " md5_TransformBlock", "").Observe(duration3.TotalMilliseconds)
+                                                Metric.FileOperationDurationSummary.WithLabels("", "md5_TransformBlock", "").Observe(duration3.TotalMilliseconds)
+                                                
                                                End Sub)
                 sha1task.Wait()
                 md5task.Wait()
+                Threading.Interlocked.Decrement(TotalQueueCount)
+               
             End SyncLock
         End Sub
         Public Sub PropagateAsync(block As Byte(), Optional ByVal Len As Integer = -1)
@@ -648,11 +675,16 @@ Public Class IOManager
                 End If
             End SyncLock
             If Len = -1 Then Len = block.Length
+            Dim startTimestamp3 = DateTime.Now
             While q.Count > 1024
                 Threading.Thread.Sleep(0)
             End While
+            Dim duration3 As TimeSpan = DateTime.Now - startTimestamp3
+            Metric.FileOperationDurationHistogram.WithLabels("", " PropagateAsync_while_count", "").Observe(duration3.TotalMilliseconds)
+            Metric.FileOperationDurationSummary.WithLabels("", "PropagateAsync_while_count", "").Observe(duration3.TotalMilliseconds)
             SyncLock Lock
                 SyncLock q
+                    Threading.Interlocked.Increment(TotalQueueCount)
                     q.Enqueue(New QueueBlock With {.block = block, .Len = Len})
                 End SyncLock
             End SyncLock

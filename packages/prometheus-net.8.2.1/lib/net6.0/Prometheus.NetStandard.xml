@@ -1,0 +1,1809 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Prometheus.NetStandard</name>
+    </assembly>
+    <members>
+        <member name="T:Prometheus.ChildBase">
+            <summary>
+            Base class for labeled instances of metrics (with all label names and label values defined).
+            </summary>
+        </member>
+        <member name="M:Prometheus.ChildBase.Publish">
+            <summary>
+            Marks the metric as one to be published, even if it might otherwise be suppressed.
+            
+            This is useful for publishing zero-valued metrics once you have loaded data on startup and determined
+            that there is no need to increment the value of the metric.
+            </summary>
+            <remarks>
+            Subclasses must call this when their value is first set, to mark the metric as published.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.ChildBase.Unpublish">
+            <summary>
+            Marks the metric as one to not be published.
+            
+            The metric will be published when Publish() is called or the value is updated.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ChildBase.Remove">
+            <summary>
+            Removes this labeled instance from metrics.
+            It will no longer be published and any existing measurements/buckets will be discarded.
+            </summary>
+        </member>
+        <member name="P:Prometheus.ChildBase.InstanceLabels">
+            <summary>
+            Labels specific to this metric instance, without any inherited static labels.
+            Internal for testing purposes only.
+            </summary>
+        </member>
+        <member name="P:Prometheus.ChildBase.FlattenedLabels">
+            <summary>
+            All labels that materialize on this metric instance, including inherited static labels.
+            Internal for testing purposes only.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ChildBase.CollectAndSerializeAsync(Prometheus.IMetricsSerializer,System.Threading.CancellationToken)">
+            <summary>
+            Collects all the metric data rows from this collector and serializes it using the given serializer.
+            </summary>
+            <remarks>
+            Subclass must check _publish and suppress output if it is false.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.ChildBase.BorrowExemplar(Prometheus.ObservedExemplar@)">
+            <summary>
+            Borrows an exemplar temporarily, to be later returned via ReturnBorrowedExemplar.
+            Borrowing ensures that no other thread is modifying it (as exemplars are not thread-safe).
+            You would typically want to do this while serializing the exemplar.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ChildBase.ReturnBorrowedExemplar(Prometheus.ObservedExemplar@,Prometheus.ObservedExemplar)">
+            <summary>
+            Returns a borrowed exemplar to storage or the object pool, with correct handling for cases where it is Empty.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ChildLifetimeInfo">
+            <summary>
+            Describes a lifetime of a lifetime-managed metric instance.
+            </summary>
+            <remarks>
+            Contents modified via atomic operations, not guarded by locks.
+            </remarks>
+        </member>
+        <member name="F:Prometheus.ChildLifetimeInfo.LeaseCount">
+            <summary>
+            Number of active leases. Nonzero value here indicates the lifetime extends forever.
+            </summary>
+        </member>
+        <member name="F:Prometheus.ChildLifetimeInfo.KeepaliveTimestamp">
+            <summary>
+            When the last lifetime related activity was performed. Expiration timer starts counting from here.
+            This is refreshed whenever a lease is released (a kept lease is a forever-keepalive, so we only care about releasing).
+            </summary>
+        </member>
+        <member name="F:Prometheus.ChildLifetimeInfo.Ended">
+            <summary>
+            The lifetime has been ended, potentially while a lease was active. The next time a lease ends,
+            it will have to re-register the lifetime instead of just extending the existing one.
+            </summary>
+        </member>
+        <member name="T:Prometheus.Collector">
+            <summary>
+            Base class for metrics, defining the basic informative API and the internal API.
+            </summary>
+            <remarks>
+            Many of the fields are lazy-initialized to ensure we only perform the memory allocation if and when we actually use them.
+            For some, it means rarely used members are never allocated at all (e.g. if you never inspect the set of label names, they are never allocated).
+            For others, it means they are allocated at first time of use (e.g. serialization-related fields are allocated when serializing the first time).
+            </remarks>
+        </member>
+        <member name="P:Prometheus.Collector.Name">
+            <summary>
+            The metric name, e.g. http_requests_total.
+            </summary>
+        </member>
+        <member name="P:Prometheus.Collector.Help">
+            <summary>
+            The help text describing the metric for a human audience.
+            </summary>
+        </member>
+        <member name="P:Prometheus.Collector.LabelNames">
+            <summary>
+            Names of the instance-specific labels (name-value pairs) that apply to this metric.
+            When the values are added to the names, you get a <see cref="T:Prometheus.ChildBase"/> instance.
+            Does not include any static label names (from metric configuration, factory or registry).
+            </summary>
+        </member>
+        <member name="F:Prometheus.Collector.StaticLabels">
+            <summary>
+            All static labels obtained from any hierarchy level (either defined in metric configuration or in registry).
+            These will be merged with the instance-specific labels to arrive at the final flattened label sequence for a specific child.
+            </summary>
+        </member>
+        <member name="T:Prometheus.Collector`1">
+            <summary>
+            Base class for metrics collectors, providing common labeled child management functionality.
+            </summary>
+        </member>
+        <member name="P:Prometheus.Collector`1.Unlabelled">
+            <summary>
+            Gets the child instance that has no labels.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Collector`1.GetAllLabelValues">
+            <summary>
+            Gets the instance-specific label values of all labelled instances of the collector.
+            Values of any inherited static labels are not returned in the result.
+            
+            Note that during concurrent operation, the set of values returned here
+            may diverge from the latest set of values used by the collector.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Collector`1.GetAllInstanceLabelsUnsafe">
+            <summary>
+            For tests that want to see what instance-level label values were used when metrics were created.
+            This is for testing only, so does not respect locks - do not use this in concurrent context.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Collector`1.NewChild(Prometheus.LabelSequence,Prometheus.LabelSequence,System.Boolean,Prometheus.ExemplarBehavior)">
+            <summary>
+            Creates a new instance of the child collector type.
+            </summary>
+        </member>
+        <member name="T:Prometheus.CollectorFamily.SerializeFamilyOperation">
+            <summary>
+            We use these reusable operation wrappers to avoid capturing variables when serializing, to keep memory usage down while serializing.
+            </summary>
+        </member>
+        <member name="T:Prometheus.CollectorIdentity">
+            <summary>
+            Uniquely identifies a specific collector within a family. Different collectors are used for different label combinations.
+            * Any difference in static labels (keys or values) means it is a different collector.
+            * Any difference in the names of instance labels means it is a different collector.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorIdentity.#ctor(Prometheus.StringSequence,Prometheus.LabelSequence)">
+            <summary>
+            Uniquely identifies a specific collector within a family. Different collectors are used for different label combinations.
+            * Any difference in static labels (keys or values) means it is a different collector.
+            * Any difference in the names of instance labels means it is a different collector.
+            </summary>
+        </member>
+        <member name="T:Prometheus.CollectorRegistry">
+            <summary>
+            Maintains references to a set of collectors, from which data for metrics is collected at data export time.
+            
+            Use methods on the <see cref="T:Prometheus.Metrics"/> class to add metrics to a collector registry.
+            </summary>
+            <remarks>
+            To encourage good concurrency practices, registries are append-only. You can add things to them but not remove.
+            If you wish to remove things from the registry, create a new registry with only the things you wish to keep.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.AddBeforeCollectCallback(System.Action)">
+            <summary>
+            Registers an action to be called before metrics are collected.
+            This enables you to do last-minute updates to metric values very near the time of collection.
+            Callbacks will delay the metric collection, so do not make them too long or it may time out.
+            
+            The callback will be executed synchronously and should not take more than a few milliseconds.
+            To execute longer-duration callbacks, register an asynchronous callback (Func&lt;Task&gt;).
+            
+            If the callback throws <see cref="T:Prometheus.ScrapeFailedException"/> then the entire metric collection will fail.
+            This will result in an appropriate HTTP error code or a skipped push, depending on type of exporter.
+            
+            If multiple concurrent collections occur, the callback may be called multiple times concurrently.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.AddBeforeCollectCallback(System.Func{System.Threading.CancellationToken,System.Threading.Tasks.Task})">
+            <summary>
+            Registers an action to be called before metrics are collected.
+            This enables you to do last-minute updates to metric values very near the time of collection.
+            Callbacks will delay the metric collection, so do not make them too long or it may time out.
+            
+            Asynchronous callbacks will be executed concurrently and may last longer than a few milliseconds.
+            
+            If the callback throws <see cref="T:Prometheus.ScrapeFailedException"/> then the entire metric collection will fail.
+            This will result in an appropriate HTTP error code or a skipped push, depending on type of exporter.
+            
+            If multiple concurrent collections occur, the callback may be called multiple times concurrently.
+            </summary>
+        </member>
+        <member name="P:Prometheus.CollectorRegistry.StaticLabels">
+            <summary>
+            The set of static labels that are applied to all metrics in this registry.
+            Enumeration of the returned collection is thread-safe.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.SetStaticLabels(System.Collections.Generic.IDictionary{System.String,System.String})">
+            <summary>
+            Defines the set of static labels to apply to all metrics in this registry.
+            The static labels can only be set once on startup, before adding or publishing any metrics.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.CollectAndExportAsTextAsync(System.IO.Stream,System.Threading.CancellationToken)">
+            <summary>
+            Collects all metrics and exports them in text document format to the provided stream.
+            
+            This method is designed to be used with custom output mechanisms that do not use an IMetricServer.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.CollectAndExportAsTextAsync(System.IO.Stream,Prometheus.ExpositionFormat,System.Threading.CancellationToken)">
+            <summary>
+            Collects all metrics and exports them in text document format to the provided stream.
+            
+            This method is designed to be used with custom output mechanisms that do not use an IMetricServer.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.GetOrAdd``2(System.String,System.String,Prometheus.StringSequence@,Prometheus.LabelSequence@,``1,Prometheus.ExemplarBehavior,Prometheus.CollectorRegistry.CollectorInitializer{``0,``1}@)">
+            <summary>
+            Adds a collector to the registry, returning an existing instance if one with a matching name was already registered.
+            </summary>
+        </member>
+        <member name="F:Prometheus.CollectorRegistry._beforeFirstCollectCallback">
+            <summary>
+            Allows us to initialize (or not) the registry with the default metrics before the first collection.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.CollectAndSerializeAsync(Prometheus.IMetricsSerializer,System.Threading.CancellationToken)">
+            <summary>
+            Collects metrics from all the registered collectors and sends them to the specified serializer.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.StartCollectingRegistryMetrics">
+            <summary>
+            We collect some debug metrics from the registry itself to help indicate how many metrics we are publishing.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CollectorRegistry.OnStartCollectingRegistryMetrics(System.Action)">
+            <summary>
+            Registers a callback to be called when registry debug metrics are enabled.
+            If the debug metrics have already been enabled, the callback is called immediately.
+            </summary>
+        </member>
+        <member name="P:Prometheus.CounterConfiguration.ExemplarBehavior">
+            <summary>
+            Allows you to configure how exemplars are applied to the published metric.
+            If null, inherits the exemplar behavior from the metric factory.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CounterExtensions.IncToCurrentTimeUtc(Prometheus.ICounter)">
+            <summary>
+            Increments the value of the counter to the current UTC time as a Unix timestamp in seconds.
+            Value does not include any elapsed leap seconds because Unix timestamps do not include leap seconds.
+            Operation is ignored if the current value is already greater.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CounterExtensions.IncToTimeUtc(Prometheus.ICounter,System.DateTimeOffset)">
+            <summary>
+            Increments the value of the counter to a specific moment as the UTC Unix timestamp in seconds.
+            Value does not include any elapsed leap seconds because Unix timestamps do not include leap seconds.
+            Operation is ignored if the current value is already greater.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CounterExtensions.CountExceptions(Prometheus.ICounter,System.Action,System.Func{System.Exception,System.Boolean})">
+            <summary>
+            Executes the provided operation and increments the counter if an exception occurs. The exception is re-thrown.
+            If an exception filter is specified, only counts exceptions for which the filter returns true.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CounterExtensions.CountExceptions``1(Prometheus.ICounter,System.Func{``0},System.Func{System.Exception,System.Boolean})">
+            <summary>
+            Executes the provided operation and increments the counter if an exception occurs. The exception is re-thrown.
+            If an exception filter is specified, only counts exceptions for which the filter returns true.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CounterExtensions.CountExceptionsAsync(Prometheus.ICounter,System.Func{System.Threading.Tasks.Task},System.Func{System.Exception,System.Boolean})">
+            <summary>
+            Executes the provided async operation and increments the counter if an exception occurs. The exception is re-thrown.
+            If an exception filter is specified, only counts exceptions for which the filter returns true.
+            </summary>
+        </member>
+        <member name="M:Prometheus.CounterExtensions.CountExceptionsAsync``1(Prometheus.ICounter,System.Func{System.Threading.Tasks.Task{``0}},System.Func{System.Exception,System.Boolean})">
+            <summary>
+            Executes the provided async operation and increments the counter if an exception occurs. The exception is re-thrown.
+            If an exception filter is specified, only counts exceptions for which the filter returns true.
+            </summary>
+        </member>
+        <member name="T:Prometheus.DiagnosticSourceAdapter">
+            <summary>
+            Monitors all DiagnosticSource events and exposes them as Prometheus counters.
+            The event data is discarded, only the number of occurrences is measured.
+            </summary>
+            <remarks>
+            This is a very coarse data set due to lacking any intelligence on the payload.
+            Users are recommended to make custom adapters with more detail for specific use cases.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.DiagnosticSourceAdapter.StartListening">
+            <summary>
+            Starts listening for DiagnosticSource events and reporting them as Prometheus metrics.
+            Dispose of the return value to stop listening.
+            </summary>
+        </member>
+        <member name="M:Prometheus.DiagnosticSourceAdapter.StartListening(Prometheus.DiagnosticSourceAdapterOptions)">
+            <summary>
+            Starts listening for DiagnosticSource events and reporting them as Prometheus metrics.
+            Dispose of the return value to stop listening.
+            </summary>
+        </member>
+        <member name="F:Prometheus.DiagnosticSourceAdapterOptions.ListenerFilterPredicate">
+            <summary>
+            By default we subscribe to all listeners but this allows you to filter by listener.
+            </summary>
+        </member>
+        <member name="T:Prometheus.DotNetStats">
+            <summary>
+            Collects basic .NET metrics about the current process. This is not meant to be an especially serious collector,
+            more of a producer of sample data so users of the library see something when they install it.
+            </summary>
+        </member>
+        <member name="M:Prometheus.DotNetStats.Register(Prometheus.CollectorRegistry)">
+            <summary>
+            Registers the .NET metrics in the specified registry.
+            </summary>
+        </member>
+        <member name="M:Prometheus.DotNetStats.RegisterDefault">
+            <summary>
+            Registers the .NET metrics in the default metrics factory and registry.
+            </summary>
+        </member>
+        <member name="T:Prometheus.EventCounterAdapter">
+            <summary>
+            Monitors .NET EventCounters and exposes them as Prometheus metrics.
+            </summary>
+            <remarks>
+            All observed .NET event counters are transformed into Prometheus metrics with translated names.
+            </remarks>
+        </member>
+        <member name="F:Prometheus.EventCounterAdapter.DefaultEventSourcePrefixes">
+            <summary>
+            By default we enable event sources that start with any of these strings. This is a manually curated list to try enable some useful ones
+            without just enabling everything under the sky (because .NET has no way to say "enable only the event counters", you have to enable all diagnostic events).
+            </summary>
+        </member>
+        <member name="T:Prometheus.EventCounterAdapterEventSourceSettings">
+            <summary>
+            Defines how the EventCounterAdapter will subscribe to an event source.
+            </summary>
+        </member>
+        <member name="P:Prometheus.EventCounterAdapterEventSourceSettings.MinimumLevel">
+            <summary>
+            Minimum level of events to receive.
+            </summary>
+        </member>
+        <member name="P:Prometheus.EventCounterAdapterEventSourceSettings.MatchKeywords">
+            <summary>
+            Event keywords, of which at least one must match for an event to be received.
+            </summary>
+        </member>
+        <member name="T:Prometheus.EventCounterAdapterMemoryWarden">
+            <summary>
+            .NET EventCounters are very noisy in terms of generating a lot of garbage. At the same time, apps in development environments typically do not get loaded much, so rarely collect garbage.
+            This can mean that as soon as you plug prometheus-net into an app, its memory usage shoots up due to gen 0 garbage piling up. It will all get collected... eventually, when the GC runs.
+            This might not happen for 12+ hours! It presents a major user perception issue, as they just see the process memory usage rise and rise and rise.
+            
+            This class exists to prevent this problem. We simply force a gen 0 GC every N minutes if EventCounterAdapter is enabled and if no GC has occurred in the last N minutes already.
+            </summary>
+        </member>
+        <member name="P:Prometheus.EventCounterAdapterOptions.EventSourceFilterPredicate">
+            <summary>
+            By default we subscribe to a predefined set of generally useful event counters but this allows you to specify a custom filter by event source name.
+            </summary>
+        </member>
+        <member name="P:Prometheus.EventCounterAdapterOptions.EventSourceSettingsProvider">
+            <summary>
+            By default, we subscribe to event counters at Informational level from every event source.
+            You can customize these settings via this callback (with the event source name as the string given as input).
+            </summary>
+        </member>
+        <member name="P:Prometheus.EventCounterAdapterOptions.UpdateInterval">
+            <summary>
+            How often we update event counter data.
+            </summary>
+            <remarks>
+            Event counters are quite noisy in terms of generating a lot of temporary objects in memory, so we keep the default moderate.
+            All this memory is immediately GC-able but in a near-idle app it can make for a scary upward trend on the RAM usage graph because the GC might not immediately release the memory to the OS.
+            </remarks>
+        </member>
+        <member name="P:Prometheus.EventCounterAdapterOptions.MetricFactory">
+            <summary>
+            If set, the value in Registry is ignored and this factory is instead used to create all the metrics.
+            </summary>
+        </member>
+        <member name="T:Prometheus.Exemplar">
+            <summary>
+            A fully-formed exemplar, describing a set of label name-value pairs.
+            
+            One-time use only - when you pass an instance to a prometheus-net method, it will take ownership of it.
+            
+            You should preallocate and cache:
+            1. The exemplar keys created via Exemplar.Key().
+            2. Exemplar key-value pairs created vvia key.WithValue() or Exemplar.Pair().
+            
+            From the key-value pairs you can create one-use Exemplar values using Exemplar.From().
+            You can clone Exemplar instances using Exemplar.Clone() - each clone can only be used once!
+            </summary>
+        </member>
+        <member name="F:Prometheus.Exemplar.None">
+            <summary>
+            Indicates that no exemplar is to be recorded for a given observation.
+            </summary>
+        </member>
+        <member name="T:Prometheus.Exemplar.LabelKey">
+            <summary>
+            An exemplar label key. For optimal performance, create it once and reuse it forever.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Exemplar.LabelKey.WithValue(System.String)">
+             <summary>
+             Create a LabelPair once a value is available
+            
+             The string is expected to only contain runes in the ASCII range, runes outside the ASCII range will get replaced
+             with placeholders. This constraint may be relaxed with future versions.
+             </summary>
+        </member>
+        <member name="T:Prometheus.Exemplar.LabelPair">
+            <summary>
+            A single exemplar label pair in a form suitable for efficient serialization.
+            If you wish to reuse the same key-value pair, you should reuse this object as much as possible.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Exemplar.Key(System.String)">
+            <summary>
+            Return an exemplar label key, this may be curried with a value to produce a LabelPair.
+            Reuse this for optimal performance.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Exemplar.Pair(System.String,System.String)">
+            <summary>
+            Pair constructs a LabelPair, it is advisable to memoize a "Key" (eg: "traceID") and then to derive "LabelPair"s
+            from these. You may (should) reuse a LabelPair for recording multiple observations that use the same exemplar.
+            </summary>
+        </member>
+        <member name="P:Prometheus.Exemplar.Length">
+            <summary>
+            Number of label pairs in use.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Exemplar.Clone">
+            <summary>
+            Clones the exemplar so it can be reused - each copy can only be used once!
+            </summary>
+        </member>
+        <member name="T:Prometheus.ExemplarBehavior">
+            <summary>
+            Defines how exemplars are obtained and published for metrics.
+            Different metrics can have their own exemplar behavior or simply inherit one from the metric factory.
+            </summary>
+        </member>
+        <member name="P:Prometheus.ExemplarBehavior.DefaultExemplarProvider">
+            <summary>
+            Callback that provides the default exemplar if none is provided by the caller when providing a metric value.
+            Defaults to Exemplar.FromTraceContext().
+            </summary>
+        </member>
+        <member name="P:Prometheus.ExemplarBehavior.NewExemplarMinInterval">
+            <summary>
+            A new exemplar will only be recorded for a timeseries if at least this much time has passed since the previous exemplar was recorded.
+            This can be used to limit the rate of publishing unique exemplars. By default we do not have any limit - a new exemplar always overwrites the old one.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ExemplarProvider">
+            <summary>
+            Callback to provide an exemplar for a specific observation.
+            </summary>
+            <param name="metric">The metric instance for which an exemplar is being provided.</param>
+            <param name="value">Context-dependent - for counters, the increment; for histograms, the observed value.</param>
+        </member>
+        <member name="F:Prometheus.ExpositionFormat.PrometheusText">
+            <summary>
+            The traditional prometheus exposition format.
+            </summary>
+        </member>
+        <member name="F:Prometheus.ExpositionFormat.OpenMetricsText">
+            <summary>
+            The OpenMetrics text exposition format
+            </summary>
+        </member>
+        <member name="M:Prometheus.GaugeExtensions.SetToCurrentTimeUtc(Prometheus.IGauge)">
+            <summary>
+            Sets the value of the gauge to the current UTC time as a Unix timestamp in seconds.
+            Value does not include any elapsed leap seconds because Unix timestamps do not include leap seconds.
+            </summary>
+        </member>
+        <member name="M:Prometheus.GaugeExtensions.SetToTimeUtc(Prometheus.IGauge,System.DateTimeOffset)">
+            <summary>
+            Sets the value of the gauge to a specific moment as the UTC timezone Unix timestamp in seconds.
+            Value does not include any elapsed leap seconds because Unix timestamps do not include leap seconds.
+            </summary>
+        </member>
+        <member name="M:Prometheus.GaugeExtensions.IncToCurrentTimeUtc(Prometheus.IGauge)">
+            <summary>
+            Increments the value of the gauge to the current UTC time as a Unix timestamp in seconds.
+            Value does not include any elapsed leap seconds because Unix timestamps do not include leap seconds.
+            Operation is ignored if the current value is already greater.
+            </summary>
+        </member>
+        <member name="M:Prometheus.GaugeExtensions.IncToTimeUtc(Prometheus.IGauge,System.DateTimeOffset)">
+            <summary>
+            Increments the value of the gauge to a specific moment as the UTC Unix timestamp in seconds.
+            Value does not include any elapsed leap seconds because Unix timestamps do not include leap seconds.
+            Operation is ignored if the current value is already greater.
+            </summary>
+        </member>
+        <member name="M:Prometheus.GaugeExtensions.TrackInProgress(Prometheus.IGauge)">
+            <summary>
+            Tracks the number of in-progress operations taking place.
+            
+            Calling this increments the gauge. Disposing of the returned instance decrements it again.
+            </summary>
+            <remarks>
+            It is safe to track the sum of multiple concurrent in-progress operations with the same gauge.
+            </remarks>
+        </member>
+        <member name="T:Prometheus.Histogram">
+            <remarks>
+            The histogram is thread-safe but not atomic - the sum of values and total count of events
+            may not add up perfectly with bucket contents if new observations are made during a collection.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.Histogram.ExponentialBuckets(System.Double,System.Double,System.Int32)">
+            <summary>  
+             Creates '<paramref name="count"/>' buckets, where the lowest bucket has an
+             upper bound of '<paramref name="start"/>' and each following bucket's upper bound is '<paramref name="factor"/>'
+             times the previous bucket's upper bound.
+            
+             The function throws if '<paramref name="count"/>' is 0 or negative, if '<paramref name="start"/>' is 0 or negative,
+             or if '<paramref name="factor"/>' is less than or equal 1.
+            </summary>
+            <param name="start">The upper bound of the lowest bucket. Must be positive.</param>
+            <param name="factor">The factor to increase the upper bound of subsequent buckets. Must be greater than 1.</param>
+            <param name="count">The number of buckets to create. Must be positive.</param>
+        </member>
+        <member name="M:Prometheus.Histogram.LinearBuckets(System.Double,System.Double,System.Int32)">
+            <summary>  
+             Creates '<paramref name="count"/>' buckets, where the lowest bucket has an
+             upper bound of '<paramref name="start"/>' and each following bucket's upper bound is the upper bound of the
+             previous bucket, incremented by '<paramref name="width"/>'
+            
+             The function throws if '<paramref name="count"/>' is 0 or negative.
+            </summary>
+            <param name="start">The upper bound of the lowest bucket.</param>
+            <param name="width">The width of each bucket (distance between lower and upper bound).</param>
+            <param name="count">The number of buckets to create. Must be positive.</param>
+        </member>
+        <member name="M:Prometheus.Histogram.PowersOfTenDividedBuckets(System.Int32,System.Int32,System.Int32)">
+            <summary>
+            Divides each power of 10 into N divisions.
+            </summary>
+            <param name="startPower">The starting range includes 10 raised to this power.</param>
+            <param name="endPower">The ranges end with 10 raised to this power (this no longer starts a new range).</param>
+            <param name="divisions">How many divisions to divide each range into.</param>
+            <remarks>
+            For example, with startPower=-1, endPower=2, divisions=4 we would get:
+            10^-1 == 0.1 which defines our starting range, giving buckets: 0.25, 0.5, 0.75, 1.0
+            10^0 == 1 which is the next range, giving buckets: 2.5, 5, 7.5, 10
+            10^1 == 10 which is the next range, giving buckets: 25, 50, 75, 100
+            10^2 == 100 which is the end and the top level of the preceding range.
+            Giving total buckets: 0.25, 0.5, 0.75, 1.0, 2.5, 5, 7.5, 10, 25, 50, 75, 100
+            </remarks>
+        </member>
+        <member name="P:Prometheus.HistogramConfiguration.Buckets">
+            <summary>
+            Custom histogram buckets to use. If null, will use Histogram.DefaultBuckets.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HistogramConfiguration.ExemplarBehavior">
+            <summary>
+            Allows you to configure how exemplars are applied to the published metric.
+            If null, inherits the exemplar behavior from the metric factory.
+            </summary>
+        </member>
+        <member name="M:Prometheus.HttpClientMetricsExtensions.UseHttpClientMetrics(Microsoft.Extensions.DependencyInjection.IHttpClientBuilder,System.Action{Prometheus.HttpClientMetrics.HttpClientExporterOptions})">
+            <summary>
+            Configures the HttpClient pipeline to collect Prometheus metrics.
+            </summary>
+        </member>
+        <member name="M:Prometheus.HttpClientMetricsExtensions.UseHttpClientMetrics(Microsoft.Extensions.DependencyInjection.IHttpClientBuilder,Prometheus.HttpClientMetrics.HttpClientExporterOptions)">
+            <summary>
+            Configures the HttpClient pipeline to collect Prometheus metrics.
+            </summary>
+        </member>
+        <member name="M:Prometheus.HttpClientMetricsExtensions.UseHttpClientMetrics(Microsoft.Extensions.Http.HttpMessageHandlerBuilder,Prometheus.HttpClientMetrics.HttpClientExporterOptions)">
+            <summary>
+            Configures the HttpMessageHandler pipeline to collect Prometheus metrics.
+            </summary>
+        </member>
+        <member name="M:Prometheus.HttpClientMetricsExtensions.UseHttpClientMetrics(Microsoft.Extensions.DependencyInjection.IServiceCollection,Prometheus.HttpClientMetrics.HttpClientExporterOptions)">
+            <summary>
+            Configures the service container to collect Prometheus metrics from all registered HttpClients.
+            </summary>
+        </member>
+        <member name="T:Prometheus.HttpClientMetrics.HttpClientDelegatingHandlerBase`2">
+            <summary>
+            This base class performs the data management necessary to associate the correct labels and values
+            with HttpClient metrics, depending on the options the user has provided for the HttpClient metric handler.
+            
+            The following labels are supported:
+            'method' (HTTP request method)
+            'host' (The host name of  HTTP request)
+            'client' (The name of the HttpClient)
+            'code' (HTTP response status code)
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientDelegatingHandlerBase`2.DefaultLabels">
+            <summary>
+            The set of labels from among the defaults that this metric supports.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientDelegatingHandlerBase`2.MetricFactory">
+            <summary>
+            The factory to use for creating the default metric for this middleware.
+            Not used if a custom metric is already provided in options.
+            </summary>
+        </member>
+        <member name="M:Prometheus.HttpClientMetrics.HttpClientDelegatingHandlerBase`2.CreateMetricInstance(System.String[])">
+            <summary>
+            Creates the default metric instance with the specified set of labels.
+            Only used if the caller does not provide a custom metric instance in the options.
+            </summary>
+        </member>
+        <member name="M:Prometheus.HttpClientMetrics.HttpClientDelegatingHandlerBase`2.CreateChild(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpResponseMessage)">
+            <summary>
+            Creates the metric child instance to use for measurements.
+            </summary>
+            <remarks>
+            Internal for testing purposes.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.HttpClientMetrics.HttpClientDelegatingHandlerBase`2.ValidateNoUnexpectedLabelNames">
+            <summary>
+            If we use a custom metric, it should not have labels that are not among the defaults.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientInProgressOptions.Gauge">
+            <summary>
+            Set this to use a custom metric instead of the default.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientMetricsOptionsBase.Registry">
+            <summary>
+            Allows you to override the registry used to create the default metric instance.
+            Value is ignored if you specify a custom metric instance in the options.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientRequestCountOptions.Counter">
+            <summary>
+            Set this to use a custom metric instead of the default.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientRequestDurationOptions.Histogram">
+            <summary>
+            Set this to use a custom metric instead of the default.
+            </summary>
+        </member>
+        <member name="T:Prometheus.HttpClientMetrics.HttpClientRequestLabelNames">
+            <summary>
+            Label names reserved for the use by the HttpClient metrics.
+            </summary>
+        </member>
+        <member name="P:Prometheus.HttpClientMetrics.HttpClientResponseDurationOptions.Histogram">
+            <summary>
+            Set this to use a custom metric instead of the default.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ICollector`1">
+            <summary>
+            Child-type-specific interface implemented by all collectors, used to enable substitution in test code.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ICollector">
+            <summary>
+            Interface implemented by all collectors, used to enable substitution in test code.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ICollectorChild">
+            <summary>
+            Interface shared by all labelled collector children.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ICollectorRegistry">
+            <summary>
+            Allows for substitution of CollectorRegistry in tests.
+            Not used by prometheus-net itself - you cannot provide your own implementation to prometheus-net code, only to your own code.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ICounter.Inc(System.Double)">
+            <summary>
+            Increment a counter by 1.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ICounter.Inc(Prometheus.Exemplar)">
+            <summary>
+            Increment a counter by 1.
+            </summary>
+            <param name="exemplar">
+            A set of labels representing an exemplar, created using Exemplar.From().
+            If null, the default exemplar provider associated with the metric is asked to provide an exemplar.
+            Pass Exemplar.None to explicitly record an observation without an exemplar.
+            </param>
+        </member>
+        <member name="M:Prometheus.ICounter.Inc(System.Double,Prometheus.Exemplar)">
+            <summary>
+            Increment a counter.
+            </summary>
+            <param name="increment">The increment.</param>
+            <param name="exemplar">
+            A set of labels representing an exemplar, created using Exemplar.From().
+            If null, the default exemplar provider associated with the metric is asked to provide an exemplar.
+            Pass Exemplar.None to explicitly record an observation without an exemplar.
+            </param>
+        </member>
+        <member name="T:Prometheus.IDelayer">
+            <summary>
+            Abstraction over Task.Delay() to allow custom delay logic to be injected in tests.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IHistogram.Observe(System.Double,System.Int64)">
+            <summary>
+            Observe multiple events with a given value.
+            
+            Intended to support high frequency or batch processing use cases utilizing pre-aggregation.
+            </summary>
+            <param name="val">Measured value.</param>
+            <param name="count">Number of observations with this value.</param>
+        </member>
+        <member name="M:Prometheus.IHistogram.Observe(System.Double,Prometheus.Exemplar)">
+            <summary>
+            Observe an event with an exemplar
+            </summary>
+            <param name="val">Measured value.</param>
+            <param name="exemplar">
+            A set of labels representing an exemplar, created using Exemplar.From().
+            If null, the default exemplar provider associated with the metric is asked to provide an exemplar.
+            Pass Exemplar.None to explicitly record an observation without an exemplar.
+            </param>
+        </member>
+        <member name="P:Prometheus.IHistogram.Sum">
+            <summary>
+            Gets the sum of all observed events.
+            </summary>
+        </member>
+        <member name="P:Prometheus.IHistogram.Count">
+            <summary>
+            Gets the count of all observed events.
+            </summary>
+        </member>
+        <member name="T:Prometheus.IManagedLifetimeMetricFactory">
+            <summary>
+            A metric factory for creating metrics that use a managed lifetime, whereby the metric may
+            be deleted based on logic other than disposal or similar explicit deletion.
+            </summary>
+            <remarks>
+            The lifetime management logic is associated with a metric handle. Calling CreateXyz() with equivalent identity parameters will return
+            the same handle. However, using multiple factories will create independent handles (which will delete the same metric independently).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricFactory.CreateCounter(System.String,System.String,System.String[],Prometheus.CounterConfiguration)">
+            <summary>
+            Creates a metric with a lease-extended lifetime.
+            A timeseries will expire N seconds after the last lease is released, with N determined at factory create-time.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricFactory.CreateGauge(System.String,System.String,System.String[],Prometheus.GaugeConfiguration)">
+            <summary>
+            Creates a metric with a lease-extended lifetime.
+            A timeseries will expire N seconds after the last lease is released, with N determined at factory create-time.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricFactory.CreateHistogram(System.String,System.String,System.String[],Prometheus.HistogramConfiguration)">
+            <summary>
+            Creates a metric with a lease-extended lifetime.
+            A timeseries will expire N seconds after the last lease is released, with N determined at factory create-time.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricFactory.CreateSummary(System.String,System.String,System.String[],Prometheus.SummaryConfiguration)">
+            <summary>
+            Creates a metric with a lease-extended lifetime.
+            A timeseries will expire N seconds after the last lease is released, with N determined at factory create-time.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricFactory.WithLabels(System.Collections.Generic.IDictionary{System.String,System.String})">
+            <summary>
+            Returns a new metric factory that will add the specified labels to any metrics created using it.
+            Different instances returned for the same labels are equivalent and any metrics created via them share their lifetimes.
+            </summary>
+        </member>
+        <member name="T:Prometheus.IManagedLifetimeMetricHandle`1">
+            <summary>
+            Handle to a metric with a lease-extended lifetime, enabling the metric to be accessed and its lifetime to be controlled.
+            Each label combination is automatically deleted N seconds after the last lease on that label combination expires.
+            </summary>
+            <remarks>
+            When creating leases, prefer the overload that takes a ReadOnlySpan because it avoids
+            allocating a string array if the metric instance you are leasing is already alive.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.AcquireLease(`0@,System.String[])">
+            <summary>
+            Takes a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.AcquireRefLease(`0@,System.String[])">
+            <summary>
+            Takes a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            The lease is returned as a stack-only struct, which is faster than the IDisposable version.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease(System.Action{`0},System.String[])">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease``1(System.Action{``0,`0},``0,System.String[])">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            Passes a given argument to the callback.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLeaseAsync(System.Func{`0,System.Threading.Tasks.Task},System.String[])">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease``1(System.Func{`0,``0},System.String[])">
+            <summary>
+            While executing a function, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLeaseAsync``1(System.Func{`0,System.Threading.Tasks.Task{``0}},System.String[])">
+            <summary>
+            While executing a function, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.AcquireLease(`0@,System.ReadOnlyMemory{System.String})">
+            <summary>
+            Takes a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.AcquireRefLease(`0@,System.ReadOnlyMemory{System.String})">
+            <summary>
+            Takes a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            The lease is returned as a stack-only struct, which is faster than the IDisposable version.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease(System.Action{`0},System.ReadOnlyMemory{System.String})">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease``1(System.Action{``0,`0},``0,System.ReadOnlyMemory{System.String})">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            Passes a given argument to the callback.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLeaseAsync(System.Func{`0,System.Threading.Tasks.Task},System.ReadOnlyMemory{System.String})">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease``1(System.Func{`0,``0},System.ReadOnlyMemory{System.String})">
+            <summary>
+            While executing a function, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLeaseAsync``1(System.Func{`0,System.Threading.Tasks.Task{``0}},System.ReadOnlyMemory{System.String})">
+            <summary>
+            While executing a function, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.AcquireLease(`0@,System.ReadOnlySpan{System.String})">
+            <summary>
+            Takes a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.AcquireRefLease(`0@,System.ReadOnlySpan{System.String})">
+            <summary>
+            Takes a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            The lease is returned as a stack-only struct, which is faster than the IDisposable version.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease(System.Action{`0},System.ReadOnlySpan{System.String})">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease``1(System.Action{``0,`0},``0,System.ReadOnlySpan{System.String})">
+            <summary>
+            While executing an action, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            Passes a given argument to the callback.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithLease``1(System.Func{`0,``0},System.ReadOnlySpan{System.String})">
+            <summary>
+            While executing a function, holds a lifetime-extending lease on the metric, scoped to a specific combination of label values.
+            
+            The typical pattern is that the metric value is only modified when the caller is holding a lease on the metric.
+            Automatic removal of the metric will not occur until all leases on the metric are disposed and the expiration duration elapses.
+            </summary>
+            <remarks>
+            Acquiring a new lease after the metric has been removed will re-publish the metric without preserving the old value.
+            Re-publishing may return a new instance of the metric (data collected via expired instances will not be published).
+            </remarks>
+        </member>
+        <member name="M:Prometheus.IManagedLifetimeMetricHandle`1.WithExtendLifetimeOnUse">
+            <summary>
+            Returns a metric instance that automatically extends the lifetime of the timeseries whenever the value is changed.
+            This is equivalent to taking a lease for every update to the value, and immediately releasing the lease.
+            
+            This is useful if the caller is lifetime-management-agnostic code that is not aware of the possibility to extend metric lifetime via leases.
+            Do not use this if you can use explicit leases instead, as this is considerably less efficient.
+            </summary>
+        </member>
+        <member name="T:Prometheus.IMetricFactory">
+            <summary>
+            Allows for substitution of MetricFactory in tests.
+            You cannot provide your own implementation to prometheus-net code, only to your own code.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricFactory.WithLabels(System.Collections.Generic.IDictionary{System.String,System.String})">
+            <summary>
+            Returns a new metric factory that will add the specified labels to any metrics created using it.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricFactory.WithManagedLifetime(System.TimeSpan)">
+            <summary>
+            Returns a factory that creates metrics with a managed lifetime.
+            </summary>
+            <param name="expiresAfter">
+            Metrics created from this factory will expire after this time span elapses, enabling automatic deletion of unused metrics.
+            The expiration timer is reset to zero for the duration of any active lifetime-extension lease that is taken on a specific metric.
+            </param>
+        </member>
+        <member name="P:Prometheus.IMetricFactory.ExemplarBehavior">
+            <summary>
+            Allows you to configure how exemplars are applied to published metrics. If null, uses default behavior (see <see cref="P:Prometheus.IMetricFactory.ExemplarBehavior"/>).
+            This is inherited by all metrics by default, although may be overridden in the configuration of an individual metric.
+            </summary>
+        </member>
+        <member name="T:Prometheus.IMetricServer">
+            <summary>
+            A metric server exposes a Prometheus metric exporter endpoint in the background,
+            operating independently and serving metrics until it is instructed to stop.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricServer.Start">
+            <summary>
+            Starts serving metrics.
+            
+            Returns the same instance that was called (for fluent-API-style chaining).
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricServer.StopAsync">
+            <summary>
+            Instructs the metric server to stop and returns a task you can await for it to stop.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricServer.Stop">
+            <summary>
+            Instructs the metric server to stop and waits for it to stop.
+            </summary>
+        </member>
+        <member name="T:Prometheus.IMetricsSerializer">
+            <summary>
+            The only purpose this serves is to warn the developer when he might be accidentally introducing
+            new serialization-time relationships. The serialization code is very tied to the text format and
+            not intended to be a generic serialization mechanism.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricsSerializer.WriteFamilyDeclarationAsync(System.String,System.Byte[],System.Byte[],Prometheus.MetricType,System.Byte[],System.Threading.CancellationToken)">
+            <summary>
+            Writes the lines that declare the metric family.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricsSerializer.WriteMetricPointAsync(System.Byte[],System.Byte[],Prometheus.CanonicalLabel,System.Double,Prometheus.ObservedExemplar,System.Byte[],System.Threading.CancellationToken)">
+            <summary>
+            Writes out a single metric point with a floating point value.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricsSerializer.WriteMetricPointAsync(System.Byte[],System.Byte[],Prometheus.CanonicalLabel,System.Int64,Prometheus.ObservedExemplar,System.Byte[],System.Threading.CancellationToken)">
+            <summary>
+            Writes out a single metric point with an integer value.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricsSerializer.WriteEnd(System.Threading.CancellationToken)">
+            <summary>
+            Writes out terminal lines
+            </summary>
+        </member>
+        <member name="M:Prometheus.IMetricsSerializer.FlushAsync(System.Threading.CancellationToken)">
+            <summary>
+            Flushes any pending buffers. Always call this after all your write calls.
+            </summary>
+        </member>
+        <member name="T:Prometheus.IObserver">
+            <summary>
+            Implemented by metric types that observe individual events with specific values.
+            </summary>
+        </member>
+        <member name="M:Prometheus.IObserver.Observe(System.Double)">
+            <summary>
+            Observes a single event with the given value.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ITimer">
+            <summary>
+            A timer that can be used to observe a duration of elapsed time.
+            
+            The observation is made either when ObserveDuration is called or when the instance is disposed of.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ITimer.ObserveDuration">
+            <summary>
+            Observes the duration (in seconds) and returns the observed value.
+            </summary>
+        </member>
+        <member name="T:Prometheus.LabelEnrichingManagedLifetimeMetricFactory">
+            <summary>
+            Applies a set of static labels to lifetime-managed metrics. Multiple instances are functionally equivalent for the same label set.
+            </summary>
+        </member>
+        <member name="T:Prometheus.LabelSequence">
+            <summary>
+            A sequence of metric label-name pairs.
+            </summary>
+        </member>
+        <member name="M:Prometheus.LabelSequence.Concat(Prometheus.LabelSequence)">
+            <summary>
+            Creates a new label sequence with some additional labels concatenated to the current sequence.
+            </summary>
+        </member>
+        <member name="M:Prometheus.LabelSequence.Serialize">
+            <summary>
+            Serializes to the labelkey1="labelvalue1",labelkey2="labelvalue2" label string as bytes.
+            </summary>
+        </member>
+        <member name="M:Prometheus.LabelSequence.ToDictionary">
+            <summary>
+            Converts the label sequence to a dictionary.
+            </summary>
+        </member>
+        <member name="T:Prometheus.LowGranularityTimeSource">
+            <summary>
+            We occasionally need timestamps to attach to metrics metadata. In high-performance code, calling the standard get-timestamp functions can be a nontrivial cost.
+            This class does some caching to avoid calling the expensive timestamp functions too often, giving an accurate but slightly lower granularity clock as one might otherwise get.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ManagedLifetimeCounter">
+            <summary>
+            This class implements two sets of functionality:
+            1. A lifetime-managed metric handle that can be used to take leases on the metric.
+            2. An automatically-lifetime-extending-on-use metric that creates leases automatically.
+            
+            While conceptually separate, we merge the two sets into one class to avoid allocating a bunch of small objects
+            every time you want to obtain a lifetime-extending-on-use metric (which tends to be on a relatively hot path).
+            
+            The lifetime-extending feature only supports write operations because we cannot guarantee that the metric is still alive when reading.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ManagedLifetimeGauge">
+            <summary>
+            This class implements two sets of functionality:
+            1. A lifetime-managed metric handle that can be used to take leases on the metric.
+            2. An automatically-lifetime-extending-on-use metric that creates leases automatically.
+            
+            While conceptually separate, we merge the two sets into one class to avoid allocating a bunch of small objects
+            every time you want to obtain a lifetime-extending-on-use metric (which tends to be on a relatively hot path).
+            
+            The lifetime-extending feature only supports write operations because we cannot guarantee that the metric is still alive when reading.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ManagedLifetimeHistogram">
+            <summary>
+            This class implements two sets of functionality:
+            1. A lifetime-managed metric handle that can be used to take leases on the metric.
+            2. An automatically-lifetime-extending-on-use metric that creates leases automatically.
+            
+            While conceptually separate, we merge the two sets into one class to avoid allocating a bunch of small objects
+            every time you want to obtain a lifetime-extending-on-use metric (which tends to be on a relatively hot path).
+            
+            The lifetime-extending feature only supports write operations because we cannot guarantee that the metric is still alive when reading.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ManagedLifetimeMetricFactory.GetAllStaticLabelNames">
+            <summary>
+            Gets all the existing label names predefined either in the factory or in the registry.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ManagedLifetimeMetricHandle`2">
+            <summary>
+            Represents a metric whose lifetime is managed by the caller, either via explicit leases or via extend-on-use behavior (implicit leases).
+            </summary>
+            <remarks>
+            Each metric handle maintains a reaper task that occasionally removes metrics that have expired. The reaper is started
+            when the first lifetime-managed metric is created and terminates when the last lifetime-managed metric expires.
+            This does mean that the metric handle may keep objects alive until expiration, even if the handle itself is no longer used.
+            </remarks>
+        </member>
+        <member name="F:Prometheus.ManagedLifetimeMetricHandle`2.Delayer">
+            <summary>
+            Internal to allow the delay logic to be replaced in test code, enabling (non-)expiration on demand.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ManagedLifetimeMetricHandle`2.SetAllKeepaliveTimestampsToDistantPast">
+            <summary>
+            For testing only. Sets all keepalive timestamps to a time in the disstant past,
+            which will cause all lifetimes to expire (if they have no leases).
+            </summary>
+        </member>
+        <member name="M:Prometheus.ManagedLifetimeMetricHandle`2.DebugDumpLifetimes">
+            <summary>
+            For anomaly analysis during testing only.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ManagedLifetimeMetricHandle`2.EnsureReaperActive">
+            <summary>
+            Call this immediately after creating a metric instance that will eventually expire.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ManagedLifetimeMetricHandle`2.CleanupReaper">
+            <summary>
+            Called when the reaper has noticed that all metric instances have expired and it has no more work to do. 
+            </summary>
+        </member>
+        <member name="T:Prometheus.ManagedLifetimeMetricIdentity">
+            <summary>
+            For managed lifetime metrics, we just want to uniquely identify metric instances so we can cache them.
+            We differentiate by the family name + the set of unique instance label names applied to the instance.
+            
+            Managed lifetime metrics are not differentiated by static labels because the static labels are applied
+            in a lower layer (the underlying MetricFactory) and cannot differ within a single ManagedLifetimeMetricFactory.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ManagedLifetimeSummary">
+            <summary>
+            This class implements two sets of functionality:
+            1. A lifetime-managed metric handle that can be used to take leases on the metric.
+            2. An automatically-lifetime-extending-on-use metric that creates leases automatically.
+            
+            While conceptually separate, we merge the two sets into one class to avoid allocating a bunch of small objects
+            every time you want to obtain a lifetime-extending-on-use metric (which tends to be on a relatively hot path).
+            
+            The lifetime-extending feature only supports write operations because we cannot guarantee that the metric is still alive when reading.
+            </summary>
+        </member>
+        <member name="T:Prometheus.MeterAdapter">
+            <summary>
+            Publishes .NET Meters as Prometheus metrics.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MeterAdapterOptions.InstrumentFilterPredicate">
+            <summary>
+            By default we publish all instruments from all meters but this allows you to filter by instrument.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MeterAdapterOptions.MetricsExpireAfter">
+            <summary>
+            The .NET Meters API does not tell us (or even know itself) when a metric with a certain label combination is no longer going to receive new data.
+            To avoid building an ever-increasing store of in-memory metrics states, we delete metrics once they have not been updated in a while.
+            The idea being that metrics are useful when they are changing regularly - if a value stays the same for N minutes, it probably is not a valuable data point anymore.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MeterAdapterOptions.Registry">
+            <summary>
+            Metrics will be published in this registry.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MeterAdapterOptions.MetricFactory">
+            <summary>
+            If set, the value in Registry is ignored and this factory is instead used to create all the metrics.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MeterAdapterOptions.ResolveHistogramBuckets">
+            <summary>
+            Enables you to define custom buckets for histogram-typed metrics.
+            </summary>
+        </member>
+        <member name="T:Prometheus.MetricConfiguration">
+            <summary>
+            This class packages the options for creating metrics into a single class (with subclasses per metric type)
+            for easy extensibility of the API without adding numerous method overloads whenever new options are added.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MetricConfiguration.LabelNames">
+            <summary>
+            NOTE: Only used by APIs that do not take an explicit labelNames value as input.
+            
+            Names of all the label fields that are defined for each instance of the metric.
+            If null, the metric will be created without any instance-specific labels.
+            
+            Before using a metric that uses instance-specific labels, .WithLabels() must be called to provide values for the labels.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MetricConfiguration.SuppressInitialValue">
+            <summary>
+            If true, the metric will not be published until its value is first modified (regardless of the specific value).
+            This is useful to delay publishing gauges that get their initial values delay-loaded.
+            
+            By default, metrics are published as soon as possible - if they do not use labels then they are published on
+            creation and if they use labels then as soon as the label values are assigned.
+            </summary>
+        </member>
+        <member name="T:Prometheus.MetricFactory">
+            <summary>
+            Adds metrics to a registry.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateCounter(System.String,System.String,Prometheus.CounterConfiguration)">
+            <summary>
+            Counters only increase in value and reset to zero when the process restarts.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateGauge(System.String,System.String,Prometheus.GaugeConfiguration)">
+            <summary>
+            Gauges can have any numeric value and change arbitrarily.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateSummary(System.String,System.String,Prometheus.SummaryConfiguration)">
+            <summary>
+            Summaries track the trends in events over time (10 minutes by default).
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateHistogram(System.String,System.String,Prometheus.HistogramConfiguration)">
+            <summary>
+            Histograms track the size and number of events in buckets.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateCounter(System.String,System.String,System.String[],Prometheus.CounterConfiguration)">
+            <summary>
+            Counters only increase in value and reset to zero when the process restarts.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateGauge(System.String,System.String,System.String[],Prometheus.GaugeConfiguration)">
+            <summary>
+            Gauges can have any numeric value and change arbitrarily.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateHistogram(System.String,System.String,System.String[],Prometheus.HistogramConfiguration)">
+            <summary>
+            Summaries track the trends in events over time (10 minutes by default).
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateSummary(System.String,System.String,System.String[],Prometheus.SummaryConfiguration)">
+            <summary>
+            Histograms track the size and number of events in buckets.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateCounter(System.String,System.String,System.String[])">
+            <summary>
+            Counters only increase in value and reset to zero when the process restarts.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateGauge(System.String,System.String,System.String[])">
+            <summary>
+            Gauges can have any numeric value and change arbitrarily.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateSummary(System.String,System.String,System.String[])">
+            <summary>
+            Summaries track the trends in events over time (10 minutes by default).
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.CreateHistogram(System.String,System.String,System.String[])">
+            <summary>
+            Histograms track the size and number of events in buckets.
+            </summary>
+        </member>
+        <member name="M:Prometheus.MetricFactory.GetAllStaticLabelNames">
+            <summary>
+            Gets all the existing label names predefined either in the factory or in the registry.
+            </summary>
+        </member>
+        <member name="T:Prometheus.MetricHandler">
+            <summary>
+            Base class for various metric server implementations that start an independent exporter in the background.
+            The expoters may either be pull-based (exposing the Prometheus API) or push-based (actively pushing to PushGateway).
+            </summary>
+        </member>
+        <member name="T:Prometheus.MetricPusher">
+            <summary>
+            A metric server that regularly pushes metrics to a Prometheus PushGateway.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MetricPusherOptions.OnError">
+            <summary>
+            Callback for when a metric push fails.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MetricPusherOptions.HttpClientProvider">
+            <summary>
+            If null, a singleton HttpClient will be used.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MetricPusherOptions.ReplaceOnPush">
+             <summary>
+             If true, replace the metrics in the group (identified by Job, Instance, AdditionalLabels).
+            
+             Replace means a HTTP PUT request will be made, otherwise a HTTP POST request will be made (which means add metrics to the group, if it already exists).
+            
+             Note: Other implementations of the pushgateway client default to replace, however to preserve backwards compatibility this implementation defaults to add.
+             </summary>
+        </member>
+        <member name="T:Prometheus.Metrics">
+            <summary>
+            Static class for easy creation of metrics. Acts as the entry point to the prometheus-net metrics recording API.
+            
+            Some built-in metrics are registered by default in the default collector registry. If these default metrics are
+            not desired, call <see cref="M:Prometheus.Metrics.SuppressDefaultMetrics"/> to remove them before registering your own.
+            </summary>
+        </member>
+        <member name="P:Prometheus.Metrics.DefaultRegistry">
+            <summary>
+            The default registry where all metrics are registered by default.
+            </summary>
+        </member>
+        <member name="P:Prometheus.Metrics.DefaultFactory">
+            <summary>
+            The default metric factory used to create collectors in the default registry.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.NewCustomRegistry">
+            <summary>
+            Creates a new registry. You may want to use multiple registries if you want to
+            export different sets of metrics via different exporters (e.g. on different URLs).
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.WithCustomRegistry(Prometheus.CollectorRegistry)">
+            <summary>
+            Returns an instance of <see cref="T:Prometheus.MetricFactory" /> that you can use to register metrics in a custom registry.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.WithLabels(System.Collections.Generic.IDictionary{System.String,System.String})">
+            <summary>
+            Adds the specified static labels to all metrics created using the returned factory.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.WithManagedLifetime(System.TimeSpan)">
+            <summary>
+            Returns a factory that creates metrics with a managed lifetime.
+            </summary>
+            <param name="expiresAfter">
+            Metrics created from this factory will expire after this time span elapses, enabling automatic deletion of unused metrics.
+            The expiration timer is reset to zero for the duration of any active lifetime-extension lease that is taken on a specific metric.
+            </param>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateCounter(System.String,System.String,Prometheus.CounterConfiguration)">
+            <summary>
+            Counters only increase in value and reset to zero when the process restarts.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateGauge(System.String,System.String,Prometheus.GaugeConfiguration)">
+            <summary>
+            Gauges can have any numeric value and change arbitrarily.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateSummary(System.String,System.String,Prometheus.SummaryConfiguration)">
+            <summary>
+            Summaries track the trends in events over time (10 minutes by default).
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateHistogram(System.String,System.String,Prometheus.HistogramConfiguration)">
+            <summary>
+            Histograms track the size and number of events in buckets.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateCounter(System.String,System.String,System.String[],Prometheus.CounterConfiguration)">
+            <summary>
+            Counters only increase in value and reset to zero when the process restarts.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateGauge(System.String,System.String,System.String[],Prometheus.GaugeConfiguration)">
+            <summary>
+            Gauges can have any numeric value and change arbitrarily.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateSummary(System.String,System.String,System.String[],Prometheus.SummaryConfiguration)">
+            <summary>
+            Summaries track the trends in events over time (10 minutes by default).
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateHistogram(System.String,System.String,System.String[],Prometheus.HistogramConfiguration)">
+            <summary>
+            Histograms track the size and number of events in buckets.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateCounter(System.String,System.String,System.String[])">
+            <summary>
+            Counters only increase in value and reset to zero when the process restarts.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateGauge(System.String,System.String,System.String[])">
+            <summary>
+            Gauges can have any numeric value and change arbitrarily.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateSummary(System.String,System.String,System.String[])">
+            <summary>
+            Summaries track the trends in events over time (10 minutes by default).
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.CreateHistogram(System.String,System.String,System.String[])">
+            <summary>
+            Histograms track the size and number of events in buckets.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.SuppressDefaultMetrics">
+            <summary>
+            Suppresses the registration of the default sample metrics from the default registry.
+            Has no effect if not called on startup (it will not remove metrics from a registry already in use).
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.SuppressDefaultMetrics(Prometheus.SuppressDefaultMetricOptions)">
+            <summary>
+            Suppresses the registration of the default sample metrics from the default registry.
+            Has no effect if not called on startup (it will not remove metrics from a registry already in use).
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.ConfigureEventCounterAdapter(System.Action{Prometheus.EventCounterAdapterOptions})">
+            <summary>
+            Configures the event counter adapter that is enabled by default on startup.
+            </summary>
+        </member>
+        <member name="M:Prometheus.Metrics.ConfigureMeterAdapter(System.Action{Prometheus.MeterAdapterOptions})">
+            <summary>
+            Configures the meter adapter that is enabled by default on startup.
+            </summary>
+        </member>
+        <member name="T:Prometheus.MetricServer">
+            <summary>
+            Implementation of a Prometheus exporter that serves metrics using HttpListener.
+            This is a stand-alone exporter for apps that do not already have an HTTP server included.
+            </summary>
+        </member>
+        <member name="P:Prometheus.MetricServer.RequestPredicate">
+            <summary>
+            Only requests that match this predicate will be served by the metric server. This allows you to add authorization checks.
+            By default (if null), all requests are served.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ObservedExemplar">
+            <summary>
+            Internal representation of an Exemplar ready to be serialized.
+            </summary>
+        </member>
+        <member name="F:Prometheus.ObservedExemplar.MaxRunes">
+            <summary>
+            OpenMetrics places a length limit of 128 runes on the exemplar (sum of all key value pairs).
+            </summary>
+        </member>
+        <member name="F:Prometheus.ObservedExemplar.Pool">
+            <summary>
+            We have a pool of unused instances that we can reuse, to avoid constantly allocating memory. Once the set of metrics stabilizes,
+            all allocations should generally be coming from the pool. We expect the default pool configuratiopn to be suitable for this.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ObservedExemplar.CreatePooled(Prometheus.Exemplar,System.Double)">
+            <remarks>
+            Takes ownership of the labels and will destroy them when the instance is returned to the pool.
+            </remarks>
+        </member>
+        <member name="T:Prometheus.PrometheusNameHelpers">
+            <summary>
+            Transforms external names in different character sets into Prometheus (metric or label) names.
+            </summary>
+        </member>
+        <member name="T:Prometheus.PushStreamContentInternal">
+            <summary>
+            Provides an <see cref="T:System.Net.Http.HttpContent"/> implementation that exposes an output <see cref="T:System.IO.Stream"/>
+            which can be written to directly. The ability to push data to the output stream differs from the 
+            <see cref="T:System.Net.Http.StreamContent"/> where data is pulled and not pushed.
+            </summary>
+        </member>
+        <member name="M:Prometheus.PushStreamContentInternal.#ctor(System.Func{System.IO.Stream,System.Net.Http.HttpContent,System.Net.TransportContext,System.Threading.Tasks.Task},System.Net.Http.Headers.MediaTypeHeaderValue)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Prometheus.PushStreamContentInternal"/> class with the given <see cref="T:System.Net.Http.Headers.MediaTypeHeaderValue"/>.
+            </summary>
+        </member>
+        <member name="M:Prometheus.PushStreamContentInternal.SerializeToStreamAsync(System.IO.Stream,System.Net.TransportContext)">
+            <summary>
+            When this method is called, it calls the action provided in the constructor with the output 
+            stream to write to. Once the action has completed its work it closes the stream which will 
+            close this content instance and complete the HTTP request or response.
+            </summary>
+            <param name="stream">The <see cref="T:System.IO.Stream"/> to which to write.</param>
+            <param name="context">The associated <see cref="T:System.Net.TransportContext"/>.</param>
+            <returns>A <see cref="T:System.Threading.Tasks.Task"/> instance that is asynchronously serializing the object's content.</returns>
+        </member>
+        <member name="M:Prometheus.PushStreamContentInternal.TryComputeLength(System.Int64@)">
+            <summary>
+            Computes the length of the stream if possible.
+            </summary>
+            <param name="length">The computed length of the stream.</param>
+            <returns><c>true</c> if the length has been computed; otherwise <c>false</c>.</returns>
+        </member>
+        <member name="T:Prometheus.RealDelayer">
+            <summary>
+            An implementation that uses Task.Delay(), for use at runtime.
+            </summary>
+        </member>
+        <member name="T:Prometheus.RefLease">
+            <summary>
+            A stack-only struct for holding a lease on a lifetime-managed metric.
+            Helps avoid allocation when you need to take a lease in a synchronous context where stack-only structs are allowed.
+            </summary>
+        </member>
+        <member name="T:Prometheus.ScrapeFailedException">
+            <summary>
+            Signals to the metrics server that metrics are currently unavailable. Thrown from "before collect" callbacks.
+            This causes the entire export operation to fail - even if some metrics are available, they will not be exported.
+            
+            The exception message will be delivered as the HTTP response body by the exporter.
+            </summary>
+        </member>
+        <member name="T:Prometheus.StringSequence">
+            <summary>
+            Used for maintaining low-allocation-overhead ordered lists of strings, such as those used for metric label names and label values.
+            The list can be constructed from multiple segments that come from different types of data sources, unified into a single sequence by this type.
+            </summary>
+            <remarks>
+            We assume (as an optimization) that the segments the sequence is made from never change.
+            We compare values using ordinal comparison.
+            
+            We explicitly do not mark this sequence as enumerable or a collection type, to prevent accidentally using a non-performance-tuned enumeration method.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.StringSequence.ToArray">
+            <summary>
+            Copies the sequence to a new array. Try keep this out of any hot path at runtime, please!
+            </summary>
+        </member>
+        <member name="F:Prometheus.Summary.DefObjectivesArray">
+            <summary>
+            Client library guidelines say that the summary should default to not measuring quantiles.
+            https://prometheus.io/docs/instrumenting/writing_clientlibs/#summary
+            </summary>
+        </member>
+        <member name="M:Prometheus.Summary.Child.Observe(System.Double,System.Double)">
+            <summary>
+            For unit tests only
+            </summary>
+        </member>
+        <member name="P:Prometheus.SummaryConfiguration.Objectives">
+            <summary>
+            Pairs of quantiles and allowed error values (epsilon).
+            
+            For example, a quantile of 0.95 with an epsilon of 0.01 means the calculated value
+            will be between the 94th and 96th quantile.
+            
+            If null, no quantiles will be calculated!
+            </summary>
+        </member>
+        <member name="P:Prometheus.SummaryConfiguration.MaxAge">
+            <summary>
+            Time span over which to calculate the summary.
+            </summary>
+        </member>
+        <member name="P:Prometheus.SummaryConfiguration.AgeBuckets">
+            <summary>
+            Number of buckets used to control measurement expiration.
+            </summary>
+        </member>
+        <member name="P:Prometheus.SummaryConfiguration.BufferSize">
+            <summary>
+            Buffer size limit. Use multiples of 500 to avoid waste, as internal buffers use that size.
+            </summary>
+        </member>
+        <member name="P:Prometheus.SuppressDefaultMetricOptions.SuppressProcessMetrics">
+            <summary>
+            Suppress the current-process-inspecting metrics (uptime, resource use, ...).
+            </summary>
+        </member>
+        <member name="P:Prometheus.SuppressDefaultMetricOptions.SuppressDebugMetrics">
+            <summary>
+            Suppress metrics that prometheus-net uses to report debug information about itself (e.g. number of metrics exported).
+            </summary>
+        </member>
+        <member name="P:Prometheus.SuppressDefaultMetricOptions.SuppressEventCounters">
+            <summary>
+            Suppress the default .NET Event Counter integration.
+            </summary>
+        </member>
+        <member name="P:Prometheus.SuppressDefaultMetricOptions.SuppressMeters">
+            <summary>
+            Suppress the .NET Meter API integration.
+            </summary>
+        </member>
+        <member name="M:Prometheus.SuppressDefaultMetricOptions.ApplyToDefaultRegistry(Prometheus.SuppressDefaultMetricOptions.ConfigurationCallbacks)">
+            <summary>
+            Configures the default metrics registry based on the requested defaults behavior.
+            </summary>
+        </member>
+        <member name="T:Prometheus.TextSerializer">
+            <remarks>
+            Does NOT take ownership of the stream - caller remains the boss.
+            </remarks>
+        </member>
+        <member name="M:Prometheus.TextSerializer.AddStreamBuffering(System.IO.Stream)">
+            <summary>
+            Ensures that writes to the stream are buffered, meaning we do not emit individual "write 1 byte" calls to the stream.
+            This has been rumored by some users to be relevant in their scenarios (though never with solid evidence or repro steps).
+            However, we can easily simulate this via the serialization benchmark through named pipes - they are super slow if writing
+            individual characters. It is a reasonable assumption that this limitation is also true elsewhere, at least on some OS/platform.
+            </summary>
+        </member>
+        <member name="M:Prometheus.TextSerializer.WriteIdentifierPart(System.Span{System.Byte},System.Byte[],System.Byte[],Prometheus.CanonicalLabel,System.Byte[])">
+            <summary>
+            Creates a metric identifier, with an optional name postfix and an optional extra label to append to the end.
+            familyname_postfix{labelkey1="labelvalue1",labelkey2="labelvalue2"}
+            Note: Terminates with a SPACE
+            </summary>
+        </member>
+        <member name="M:Prometheus.TextSerializer.EncodeValueAsCanonicalLabel(System.Byte[],System.Double)">
+            <summary>
+            Encode the special variable in regular Prometheus form and also return a OpenMetrics variant, these can be
+            the same.
+            see: https://github.com/OpenObservability/OpenMetrics/blob/main/specification/OpenMetrics.md#considerations-canonical-numbers
+            </summary>
+        </member>
+        <member name="M:Prometheus.ThreadSafeDouble.IncrementTo(System.Double)">
+            <summary>
+            Sets the value to this, unless the existing value is already greater.
+            </summary>
+        </member>
+        <member name="M:Prometheus.ThreadSafeDouble.DecrementTo(System.Double)">
+            <summary>
+            Sets the value to this, unless the existing value is already smaller.
+            </summary>
+        </member>
+        <member name="M:Prometheus.TimerExtensions.NewTimer(Prometheus.IObserver)">
+            <summary>
+            Enables you to easily report elapsed seconds in the value of an observer.
+            Dispose of the returned instance to report the elapsed duration.
+            </summary>
+        </member>
+        <member name="M:Prometheus.TimerExtensions.NewTimer(Prometheus.IGauge)">
+            <summary>
+            Enables you to easily report elapsed seconds in the value of a gauge.
+            Dispose of the returned instance to report the elapsed duration.
+            </summary>
+        </member>
+        <member name="M:Prometheus.TimerExtensions.NewTimer(Prometheus.ICounter)">
+            <summary>
+            Enables you to easily report elapsed seconds in the value of a counter.
+            The duration (in seconds) will be added to the value of the counter.
+            Dispose of the returned instance to report the elapsed duration.
+            </summary>
+        </member>
+    </members>
+</doc>

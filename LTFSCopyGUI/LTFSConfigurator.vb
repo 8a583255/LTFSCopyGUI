@@ -659,9 +659,10 @@ Public Class LTFSConfigurator
             TextBox8.AppendText("CM Data Parsing Failed." & vbCrLf)
         End Try
         TextBox8.Text = ""
-
+        Dim UsedSpace As String
         Try
-            TextBox8.AppendText(CMInfo.GetReport())
+
+            TextBox8.AppendText(CMInfo.GetReport(UsedSpace))
             If CheckBox4.Checked AndAlso CMInfo IsNot Nothing Then
                 TextBox8.AppendText(CMInfo.GetSerializedText())
                 TextBox8.AppendText(vbCrLf)
@@ -671,17 +672,21 @@ Public Class LTFSConfigurator
         End Try
         TextBox8.Select(0, 0)
         TextBox8.ScrollToCaret()
-        If IO.Directory.Exists(My.Application.Info.DirectoryPath & "\Info") Then
-            Dim fn As String
+
+
+        If Not IO.Directory.Exists($"cm\{CMInfo.ApplicationSpecificData.Barcode}") Then
+            IO.Directory.CreateDirectory($"cm\{CMInfo.ApplicationSpecificData.Barcode}")
+        End If
+
             Try
-                fn = CMInfo.ApplicationSpecificData.Barcode
+            Dim fn As String = CMInfo.ApplicationSpecificData.Barcode
                 If fn Is Nothing OrElse fn.Length = 0 Then fn = CMInfo.CartridgeMfgData.CartridgeSN
                 If fn Is Nothing Then fn = ""
-                IO.File.WriteAllText($"{My.Application.Info.DirectoryPath}\Info\{fn}.txt", TextBox8.Text)
+            IO.File.WriteAllText($"cm\{fn}_{UsedSpace}_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.cm", TextBox8.Text)
             Catch ex As Exception
 
             End Try
-        End If
+
         Me.Enabled = True
     End Sub
 
