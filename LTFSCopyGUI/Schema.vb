@@ -149,7 +149,7 @@ Public Class ltfsindex
         Public Property fileuid As Long
         Public Property contents As New contentsDef
         Public Property tag As String
-
+        <Xml.Serialization.XmlIgnore> Public Loaded As Boolean = False
         Private _TotalFiles, _TotalDirectories, _TotalFilesUnwritten As Long
         <Xml.Serialization.XmlIgnore> Public ReadOnly Property TotalFiles
             Get
@@ -271,6 +271,7 @@ Public Class ltfsindex
     End Class
     Public Property _file As New List(Of file)
     Public Property _directory As New List(Of directory)
+
     <Xml.Serialization.XmlIgnore> Public Shared Searializing As Boolean = False
     Public Sub Standarize()
         Exit Sub

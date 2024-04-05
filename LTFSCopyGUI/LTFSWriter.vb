@@ -888,6 +888,7 @@ Public Class LTFSWriter
         Load_Settings()
         If OfflineMode Then Exit Sub
         Try
+
 '            回滚ToolStripMenuItem_Click(sender, e)
             读取索引ToolStripMenuItem_Click(sender, e)
         Catch ex As Exception
@@ -1149,14 +1150,11 @@ Public Class LTFSWriter
                 If IsSqliteTreeView Then
                     TreeView1.Nodes.Clear()
                     Dim root As New TreeNode
-                    SyncLock schema._directory
-                        For Each d As ltfsindex.directory In schema._directory
-                            root.Text = d.name
-                            root.Tag = d
-                            root.ImageIndex = 0
-                            TreeView1.Nodes.Add(root)
-                        Next
-                    End SyncLock
+
+                    root.Text = Barcode
+                    root.Tag = Barcode
+                    root.ImageIndex = 0
+                    TreeView1.Nodes.Add(root)
 
                     Dim fileAndDir = DirProvider.ReadDirWithWhere($"ParentPath= '' and isDirectory=1", GetSqliteConnection(Barcode))
                     For Each kv As DictionaryEntry In fileAndDir
@@ -1350,12 +1348,13 @@ Public Class LTFSWriter
                     ListView1.Items.Clear()
                     ListView1.Tag = d
                     SyncLock d.contents._file
-                         Dim files = d.contents._file
-                         If IsSqliteTreeView Then
-                             files = DirProvider.QueryFileWithWhere($"ParentPath='{d.fullpath}' and isdirectory=0", GetSqliteConnection(Barcode))
- 
-                         End If
-                         For Each f As ltfsindex.file In files
+                        Dim files = d.contents._file
+                        If IsSqliteTreeView Then
+                            If IsSqliteTreeView Then
+                                files = DirProvider.QueryFileWithWhere($"ParentPath='{d.fullpath}' and isdirectory=0", GetSqliteConnection(Barcode))
+                            End If
+                        End If
+                        For Each f As ltfsindex.file In files
                             Dim li As New ListViewItem
                             li.Tag = f
                             li.Text = f.name
@@ -1465,6 +1464,40 @@ Public Class LTFSWriter
                             ListView1.Items.Add(li)
                         Next
                     End SyncLock
+                    If IsSqliteTreeView Then
+                        Dim dirTreeNodes As List(Of TreeNode)
+                        If Not d.Loaded Then
+                            Dim dirs = DirProvider.QueryDirListWithWhere($"ParentPath='{d.fullpath}' and  isdirectory=1", GetSqliteConnection(Barcode))
+                            TreeView1.SelectedNode.Nodes.Clear()
+                            For Each dd In dirs
+                                Dim t As New TreeNode(dd.name)
+                                t.Tag = dd
+                                t.ImageIndex = 1
+                                t.SelectedImageIndex = 1
+                                t.StateImageIndex = 1
+                                TreeView1.SelectedNode.Nodes.Add(t)
+                            Next
+                            d.Loaded = True
+                        End If
+                        For Each tt In TreeView1.SelectedNode.Nodes
+                            Dim dd As ltfsindex.directory = tt.Tag
+                            Dim childdirs As List(Of ltfsindex.directory)
+                            If Not dd.Loaded Then
+                                childdirs = DirProvider.QueryDirListWithWhere($"ParentPath='{dd.fullpath}' and  isdirectory=1", GetSqliteConnection(Barcode))
+                                tt.Nodes.Clear()
+                                For Each childdir In childdirs
+                                    Dim ttt As New TreeNode(childdir.name)
+                                    ttt.Tag = childdir
+                                    ttt.ImageIndex = 1
+                                    ttt.SelectedImageIndex = 1
+                                    ttt.StateImageIndex = 1
+                                    tt.Nodes.Add(ttt)
+                                Next
+                                dd.Loaded = True
+                            End If
+                        Next
+                        'TreeView1.ExpandAll()
+                    End If
                 ElseIf TypeOf (TreeView1.SelectedNode.Tag) Is ltfsindex.file Then
                     Dim f As ltfsindex.file = TreeView1.SelectedNode.Tag
                     Dim t As String = f.GetXAttr("ltfscopygui.archive")
@@ -1479,6 +1512,7 @@ Public Class LTFSWriter
                     End If
                     ListView1.Items.Clear()
                 End If
+
             Catch ex As Exception
                 PrintMsg(My.Resources.ResText_NavErr)
             End Try
@@ -3358,107 +3392,126 @@ Public Class LTFSWriter
                         Dim countFile = IO.File.ReadAllText(plabelCountfile)
                         plabelCount = Convert.ToInt32(countFile)
                     End If
-
-
-                    If (IO.File.Exists(plabelfile) And TapeStatus.ThreadCount <= plabelCount) And Not Barcode Is Nothing Then
-                        pltext = IO.File.ReadAllText(plabelfile)
-                    Else
-                        TapeUtils.Locate(TapeDrive, 1, 0, TapeUtils.LocateDestType.FileMark)
-                        PrintMsg(My.Resources.ResText_RLTFSInfo)
-                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                        TapeUtils.ReadFileMark(TapeDrive)
-                        pltext = Encoding.UTF8.GetString(TapeUtils.ReadToFileMark(TapeDrive))
-                        IO.File.WriteAllText(plabelfile, pltext)
-                        IO.File.WriteAllText(plabelCountfile, TapeStatus.ThreadCount.ToString)
-                    End If
-                    plabel = ltfslabel.FromXML(pltext)
-                    TapeUtils.SetBlockSize(TapeDrive, plabel.blocksize)
-                    If plabel.location.partition = plabel.partitions.data Then
-                        DataPartition = GetPos().PartitionNumber
-                        IndexPartition = (DataPartition + 1) Mod 2
-                        If ExtraPartitionCount > 0 Then
-                            IndexPartition = 255
-                        PrintMsg($"Data partition detected. Switching to index partition", LogOnly:=True)
-                        TapeUtils.Locate(TapeDrive, 1, IndexPartition, TapeUtils.LocateDestType.FileMark)
-                        PrintMsg(My.Resources.ResText_RLTFSInfo)
-                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                        TapeUtils.ReadFileMark(TapeDrive)
-                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                        pltext = Encoding.UTF8.GetString(TapeUtils.ReadToFileMark(TapeDrive))
-                        plabel = ltfslabel.FromXML(pltext)
-                        End If
-                    Else
-                        IndexPartition = GetPos().PartitionNumber
-                        DataPartition = (IndexPartition + 1) Mod 2
-                    End If
-
-                    plabel = ltfslabel.FromXML(pltext)
-
-
-                    TapeUtils.SetBlockSize(TapeDrive, plabel.blocksize)
-
-                    PrintMsg(My.Resources.ResText_Locating)
-
-                    If ExtraPartitionCount = 0 Then
-                        IndexPartition = 255
-                        TapeUtils.Locate(TapeDrive, 0, 0, TapeUtils.LocateDestType.EOD)
-                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                        PrintMsg(My.Resources.ResText_RI)
-                        If DisablePartition Then
-                            TapeUtils.Space6(TapeDrive, -2, TapeUtils.LocateDestType.FileMark)
+                    DirProvider.CreateDatabaseAndTable(GetSqliteConnection(Barcode))
+                    Dim ltfsIndexInfoDto = DirProvider.GetLTFSIndexInfo(GetSqliteConnection(Barcode), Barcode)
+                    If ltfsIndexInfoDto Is Nothing Then
+                        If (IO.File.Exists(plabelfile) And TapeStatus.ThreadCount <= plabelCount) And Not Barcode Is Nothing Then
+                            pltext = IO.File.ReadAllText(plabelfile)
                         Else
-                            Dim p As TapeUtils.PositionData = GetPos
-                            Dim FM As Long = p.FileNumber
-                            PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
-                            If FM <= 1 Then
-                                    '索引读取失败
-                                PrintMsg(My.Resources.ResText_IRFailed)
-                                Invoke(Sub() MessageBox.Show(My.Resources.ResText_NLTFS, My.Resources.ResText_Error))
-                                LockGUI(False)
-                                Exit Try
+                            TapeUtils.Locate(TapeDrive, 1, 0, TapeUtils.LocateDestType.FileMark)
+                            PrintMsg(My.Resources.ResText_RLTFSInfo)
+                            PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                            TapeUtils.ReadFileMark(TapeDrive)
+                            pltext = Encoding.UTF8.GetString(TapeUtils.ReadToFileMark(TapeDrive))
+                            IO.File.WriteAllText(plabelfile, pltext)
+                            IO.File.WriteAllText(plabelCountfile, TapeStatus.ThreadCount.ToString)
+                        End If
+                        plabel = ltfslabel.FromXML(pltext)
+                        TapeUtils.SetBlockSize(TapeDrive, plabel.blocksize)
+
+
+                        If plabel.location.partition = plabel.partitions.data Then
+                            DataPartition = GetPos().PartitionNumber
+                            IndexPartition = (DataPartition + 1) Mod 2
+                            If ExtraPartitionCount > 0 Then
+                                IndexPartition = 255
+                                PrintMsg($"Data partition detected. Switching to index partition", LogOnly:=True)
+                                TapeUtils.Locate(TapeDrive, 1, IndexPartition, TapeUtils.LocateDestType.FileMark)
+                                PrintMsg(My.Resources.ResText_RLTFSInfo)
+                                PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                                TapeUtils.ReadFileMark(TapeDrive)
+                                PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                                pltext = Encoding.UTF8.GetString(TapeUtils.ReadToFileMark(TapeDrive))
+                                plabel = ltfslabel.FromXML(pltext)
                             End If
-                            TapeUtils.Locate(TapeDrive, FM - 1, 0, TapeUtils.LocateDestType.FileMark)
+                        Else
+                            IndexPartition = GetPos().PartitionNumber
+                            DataPartition = (IndexPartition + 1) Mod 2
                         End If
-                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                        TapeUtils.ReadFileMark(TapeDrive)
-                    Else
-                        TapeUtils.Locate(TapeDrive, 3, IndexPartition, TapeUtils.LocateDestType.FileMark)
-                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                        TapeUtils.ReadFileMark(TapeDrive)
-                    End If
-                    PrintMsg(My.Resources.ResText_RI)
-                    PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                    Dim tmpf As String = $"{Application.StartupPath}\LCG_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.tmp"
-'                    TapeUtils.Locate(TapeDrive, schema.previousgenerationlocation.startblock, schema.previousgenerationlocation.partition, TapeUtils.LocateDestType.Block)
-                    TapeUtils.ReadToFileMark(TapeDrive, tmpf, plabel.blocksize)
-                    PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
-                    PrintMsg(My.Resources.ResText_AI)
-                    schema = ltfsindex.FromSchFile(tmpf)
-                    If ExtraPartitionCount = 0 Then
-                        Dim p As TapeUtils.PositionData = GetPos
-                        PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
-                        CurrentHeight = p.BlockNumber
-                    Else
-                        CurrentHeight = -1
-                    End If
-                    PrintMsg(My.Resources.ResText_SvBak)
-                    Dim FileName As String = ""
-                    If Barcode <> "" Then
-                        FileName = Barcode
-                    Else
-                        If schema IsNot Nothing Then
-                            FileName = schema.volumeuuid.ToString()
+
+
+                        PrintMsg(My.Resources.ResText_Locating)
+
+                        If ExtraPartitionCount = 0 Then
+                            IndexPartition = 255
+                            TapeUtils.Locate(TapeDrive, 0, 0, TapeUtils.LocateDestType.EOD)
+                            PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                            PrintMsg(My.Resources.ResText_RI)
+                            If DisablePartition Then
+                                TapeUtils.Space6(TapeDrive, -2, TapeUtils.LocateDestType.FileMark)
+                            Else
+                                Dim p As TapeUtils.PositionData = GetPos
+                                Dim FM As Long = p.FileNumber
+                                PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
+                                If FM <= 1 Then
+                                    '索引读取失败
+                                    PrintMsg(My.Resources.ResText_IRFailed)
+                                    Invoke(Sub() MessageBox.Show(My.Resources.ResText_NLTFS, My.Resources.ResText_Error))
+                                    LockGUI(False)
+                                    Exit Try
+                                End If
+                                TapeUtils.Locate(TapeDrive, FM - 1, 0, TapeUtils.LocateDestType.FileMark)
+                            End If
+                            PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                            TapeUtils.ReadFileMark(TapeDrive)
+                        Else
+                            TapeUtils.Locate(TapeDrive, 3, IndexPartition, TapeUtils.LocateDestType.FileMark)
+                            PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                            TapeUtils.ReadFileMark(TapeDrive)
                         End If
+                        PrintMsg(My.Resources.ResText_RI)
+                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                        Dim tmpf As String = $"{Application.StartupPath}\LCG_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.tmp"
+                        '                    TapeUtils.Locate(TapeDrive, schema.previousgenerationlocation.startblock, schema.previousgenerationlocation.partition, TapeUtils.LocateDestType.Block)
+                        TapeUtils.ReadToFileMark(TapeDrive, tmpf, plabel.blocksize)
+                        PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
+                        PrintMsg(My.Resources.ResText_AI)
+                        schema = ltfsindex.FromSchFile(tmpf)
+                        If ExtraPartitionCount = 0 Then
+                            Dim p As TapeUtils.PositionData = GetPos
+                            PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
+                            CurrentHeight = p.BlockNumber
+                        Else
+                            CurrentHeight = -1
+                        End If
+                        PrintMsg(My.Resources.ResText_SvBak)
+                        Dim FileName As String = ""
+                        If Barcode <> "" Then
+                            FileName = Barcode
+                        Else
+                            If schema IsNot Nothing Then
+                                FileName = schema.volumeuuid.ToString()
+                            End If
+                        End If
+                        If Not IO.Directory.Exists($"schema\{Barcode}") Then
+                            IO.Directory.CreateDirectory($"schema\{Barcode}")
+                        End If
+                        Dim outputfile As String = $"schema\{Barcode}\LTFSIndex_Load_{FileName}_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.schema"
+                        If Not IO.Directory.Exists(IO.Path.Combine(Application.StartupPath, "schema")) Then
+                            IO.Directory.CreateDirectory(IO.Path.Combine(Application.StartupPath, "schema"))
+                        End If
+                        outputfile = IO.Path.Combine(Application.StartupPath, outputfile)
+                        IO.File.Move(tmpf, outputfile)
+                        DirProvider.InitializeLTFSIndexInfo(GetSqliteConnection(Barcode), plabel, schema, CurrentHeight, Barcode)
+                    Else
+                        schema = New ltfsindex With {
+                           .creator = ltfsIndexInfoDto.LTFSIndex.creator,
+                           .volumeuuid = ltfsIndexInfoDto.LTFSIndex.volumeuuid,
+                          .generationnumber = ltfsIndexInfoDto.LTFSIndex.generationnumber,
+                          .updatetime = ltfsIndexInfoDto.LTFSIndex.updatetime,
+                          .location = New ltfsindex.PartitionDef With {
+                          .partition = ltfsIndexInfoDto.LTFSIndex.location.partition,
+                          .startblock = ltfsIndexInfoDto.LTFSIndex.location.startblock
+                           },
+                           .previousgenerationlocation = New ltfsindex.PartitionDef With {
+                           .partition = ltfsIndexInfoDto.LTFSIndex.previousgenerationlocation.partition,
+                           .startblock = ltfsIndexInfoDto.LTFSIndex.previousgenerationlocation.startblock
+                           },
+                           .highestfileuid = ltfsIndexInfoDto.LTFSIndex.highestfileuid
+                           }
+                        CurrentHeight = ltfsIndexInfoDto.CurrentHeight
+
                     End If
-                    If Not IO.Directory.Exists($"schema\{Barcode}") Then
-                        IO.Directory.CreateDirectory($"schema\{Barcode}")
-                    End If
-                    Dim outputfile As String = $"schema\{Barcode}\LTFSIndex_Load_{FileName}_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.schema"
-                    If Not IO.Directory.Exists(IO.Path.Combine(Application.StartupPath, "schema")) Then
-                        IO.Directory.CreateDirectory(IO.Path.Combine(Application.StartupPath, "schema"))
-                    End If
-                    outputfile = IO.Path.Combine(Application.StartupPath, outputfile)
-                    IO.File.Move(tmpf, outputfile)
                     While True
                         Threading.Thread.Sleep(0)
                         SyncLock UFReadCount
@@ -3533,6 +3586,7 @@ Public Class LTFSWriter
                     PrintMsg(My.Resources.ResText_AI)
                     schema = ltfsindex.FromSchFile(outputfile)
                     PrintMsg(My.Resources.ResText_AISucc)
+                    
                     While True
                         Threading.Thread.Sleep(0)
                         SyncLock UFReadCount

@@ -92,21 +92,124 @@ Public Class DirProvider
          "CREATE TABLE IF NOT EXISTS ltfs_index_info (
                 ID INTEGER PRIMARY KEY,
                 creator TEXT COLLATE NOCASE,
+                blocksize INTEGER ,
                 volumeuuid TEXT  COLLATE NOCASE,
+                formattime TEXT  COLLATE NOCASE,
                 generationnumber   COLLATE NOCASE,
                 updatetime TEXT COLLATE NOCASE,
                 location_partition TEXT  COLLATE NOCASE,
                 location_startblock INTEGER  ,
                 prelocation_partition TEXT  COLLATE NOCASE,
                 prelocation_startblock INTEGER  ,
-                highestfileuid INTEGER
+                highestfileuid INTEGER,
+                current_height INTEGER
                 );",
          conn
          )
         createInfoTableCommand.ExecuteNonQuery()
   
     End Sub
-    
+    Public Shared Sub InitializeLTFSIndexInfo(connection As SQLiteConnection, plabel As ltfslabel, schema As ltfsindex, currentHeight As Int64, BarCode As String)
+        Dim ExistsCommand As New SQLiteCommand(
+            "SELECT COUNT(*) FROM ltfs_index_info ",
+            connection
+            )
+        Dim ExistsResult As Integer = CInt(ExistsCommand.ExecuteScalar())
+        If ExistsResult = 0 Then
+            Dim InsertCommand As New SQLiteCommand(
+                "insert into ltfs_index_info (creator,blocksize,volumeuuid,formattime,generationnumber,updatetime,location_partition,location_startblock,prelocation_partition,prelocation_startblock,highestfileuid,current_height)
+                 values (@creator,@blocksize,@volumeuuid,@formattime,@generationnumber,@updatetime,@location_partition,@location_startblock,@prelocation_partition,@prelocation_startblock,@highestfileuid,@current_height)",
+                connection
+                )
+            InsertCommand.Parameters.AddWithValue("@creator", plabel.creator)
+            InsertCommand.Parameters.AddWithValue("@blocksize", plabel.blocksize)
+            InsertCommand.Parameters.AddWithValue("@volumeuuid", plabel.volumeuuid.ToString())
+            InsertCommand.Parameters.AddWithValue("@formattime", plabel.formattime)
+            InsertCommand.Parameters.AddWithValue("@generationnumber", schema.generationnumber)
+            InsertCommand.Parameters.AddWithValue("@updatetime", schema.updatetime)
+            InsertCommand.Parameters.AddWithValue("@location_partition", schema.location.partition)
+            InsertCommand.Parameters.AddWithValue("@location_startblock", schema.location.startblock)
+            InsertCommand.Parameters.AddWithValue("@prelocation_partition", schema.previousgenerationlocation.partition)
+            InsertCommand.Parameters.AddWithValue("@prelocation_startblock", schema.previousgenerationlocation.startblock)
+            InsertCommand.Parameters.AddWithValue("@highestfileuid", schema.highestfileuid)
+            InsertCommand.Parameters.AddWithValue("@current_height", currentHeight)
+            LTFSWriter.FuncSqliteTrans(Sub()
+                Metric.FuncFileOperationDuration(Sub()
+                    insertCommand.ExecuteNonQuery()
+                End Sub, {"", "Sqlite_InsertInitializeLTFSIndexInfo", ""})
+            End Sub, BarCode)
+
+
+        ElseIf ExistsResult > 1 Then
+            Throw New Exception("ltfs_index_info table has more than one record")
+        End If
+    End Sub
+    Public Class LTFSIndexInfoDto
+        Public LTFSIndex As ltfsindex
+        Public CurrentHeight As Int64
+    End Class
+     
+
+    Public Shared Function GetLTFSIndexInfo(connection As SQLiteConnection, BarCode As String)  As LTFSIndexInfoDto
+        Dim ExistsCommand As New SQLiteCommand(
+                    "SELECT * FROM ltfs_index_info ",
+                    connection)
+        Dim reader As SQLiteDataReader = ExistsCommand.ExecuteReader()
+        Dim ltfsindex As ltfsindex= New ltfsindex
+        Dim ltfsIndexInfo As ltfsindexInfoDto = New ltfsindexInfoDto
+        
+        if reader.Read() Then
+            ltfsindex.creator = reader("creator")
+            ltfsindex.volumeuuid = New Guid(reader("volumeuuid").ToString())
+            ltfsindex.generationnumber = reader("generationnumber")
+            ltfsindex.updatetime = reader("updatetime")
+            ltfsindex.location.partition = reader("location_partition")
+            ltfsindex.location.startblock = reader("location_startblock")
+            ltfsindex.previousgenerationlocation.partition = reader("prelocation_partition")
+            ltfsindex.previousgenerationlocation.startblock = reader("prelocation_startblock")
+            ltfsindex.highestfileuid = reader("highestfileuid")
+            ltfsIndexInfo.LTFSIndex=ltfsindex
+            ltfsIndexInfo.CurrentHeight = reader("current_height")
+            Return ltfsindexInfo
+        End If
+        Return Nothing
+    End Function
+    Public Shared Sub UpdateHightestFileUid(connection As SQLiteConnection, BarCode As String,highestfileuid As Int64)
+        Dim ltfsindexInfoDto = GetLTFSIndexInfo(connection, BarCode)
+        If ltfsindexInfoDto IsNot Nothing Then
+            if ltfsindexInfoDto.LTFSIndex.highestfileuid <= highestfileuid Then
+                throw new Exception("highestfileuid is less than current highestfileuid")
+            End If
+                Dim updateCommand As New SQLiteCommand("update ltfs_index_info set highestfileuid=@highestfileuid ")
+            updateCommand.Parameters.AddWithValue("@highestfileuid", highestfileuid)
+            LTFSWriter.FuncSqliteTrans(Sub()
+                    Metric.FuncFileOperationDuration(Sub()
+                        updateCommand.ExecuteNonQuery()
+                    End Sub, {"", "Sqlite_UpdateHightestFileUid", ""})
+            End Sub,BarCode)
+            
+        Else 
+                throw new Exception("ltfs_index_info table has no record")
+        End If
+    End Sub
+    Public Shared Sub UpdateCurrentHeight(connection As SQLiteConnection, BarCode As String,currentHeight As Int64)
+        Dim ltfsindexInfoDto = GetLTFSIndexInfo(connection, BarCode)
+        If ltfsindexInfoDto IsNot Nothing Then
+            if ltfsindexInfoDto.currentHeight <= currentHeight Then
+                throw new Exception("currentHeight is less than current currentHeight")
+            End If
+            Dim updateCommand As New SQLiteCommand("update ltfs_index_info set current_height=@current_height ")
+            updateCommand.Parameters.AddWithValue("@current_height", currentHeight)
+            LTFSWriter.FuncSqliteTrans(Sub()
+                Metric.FuncFileOperationDuration(Sub()
+                    updateCommand.ExecuteNonQuery()
+                End Sub, {"", "Sqlite_Update_current_height", ""})
+            End Sub,BarCode)
+            
+        Else 
+            throw new Exception("ltfs_index_info table has no record")
+        End If
+    End Sub
     ' 插入数据
     Public Shared Sub InsertFile(f As ltfsindex.file, parentDir As String, connection As SQLiteConnection,
                                  BarCode As String)
@@ -443,18 +546,17 @@ Public Class DirProvider
         Return lst
     End Function
     '查询文件信息
-    Public Shared Function QueryFileWithWhere(where As String, connection As SQLiteConnection) _
-        As List(Of ltfsindex.file)
+    Public Shared Function QueryFileWithWhere(where As String, connection As SQLiteConnection) As List(Of ltfsindex.file)
         Dim queryCommand As New SQLiteCommand(
             $"SELECT * FROM ltfs_index WHERE {where} ",
             connection
             )
         Dim reader As SQLiteDataReader
         Dim lst As New List(Of ltfsindex.file)
-        Metric.FuncFileOperationDuration(Sub ()
-            reader = queryCommand.ExecuteReader()
-        End Sub, {"", $"Sqlite_QueryFileWithWhere", ""})
-   
+        Metric.FuncFileOperationDuration(Sub()
+                                             reader = queryCommand.ExecuteReader()
+                                         End Sub, {"", $"Sqlite_QueryFileWithWhere", ""})
+
         While reader.Read()
             Dim isDirectory As Boolean = Convert.ToBoolean(reader("IsDirectory"))
             If Not isDirectory Then
@@ -473,9 +575,9 @@ Public Class DirProvider
                 If reader("Length") IsNot DBNull.Value Then
                     f.length = Convert.ToInt64(reader("Length"))
                     f.extentinfo =
-                        JsonConvert.DeserializeObject (Of List(Of ltfsindex.file.extent))(reader("extent").ToString())
+                        JsonConvert.DeserializeObject(Of List(Of ltfsindex.file.extent))(reader("extent").ToString())
                     f.extendedattributes =
-                        JsonConvert.DeserializeObject (Of List(Of ltfsindex.file.xattr))(reader("extendedattributes"))
+                        JsonConvert.DeserializeObject(Of List(Of ltfsindex.file.xattr))(reader("extendedattributes"))
                 Else
                     f.length = 0
 
@@ -508,7 +610,28 @@ Public Class DirProvider
         End If
         return files(0)
     End Function
-
+    Public Shared Function QueryDirListWithWhere(where As String, connection As SQLiteConnection) As List(Of ltfsindex.directory)
+        Dim result As New List(Of ltfsindex.directory)
+        Dim files = QueryFileWithWhere($"{where}", connection)
+        If files.Count = 0 Then
+            Return New List(Of ltfsindex.directory)
+        End If
+        For Each file In files
+            Dim newdir As New ltfsindex.directory With {
+                    .name = file.name,
+                    .creationtime = file.creationtime,
+                    .fileuid = file.fileuid,
+                    .backuptime = file.backuptime,
+                    .accesstime = file.accesstime,
+                    .changetime = file.changetime,
+                    .modifytime = file.modifytime,
+                    .readonly = file.readonly,
+                    .fullpath = file.fullpath
+                    }
+            result.Add(newdir)
+        Next
+        Return result
+    End Function
     Public Shared Function QueryDir(Path As String, connection As SQLiteConnection) As ltfsindex.directory
 
         Dim files = QueryFileWithWhere($"FullPath='{Path}' and isdirectory=1", connection)
