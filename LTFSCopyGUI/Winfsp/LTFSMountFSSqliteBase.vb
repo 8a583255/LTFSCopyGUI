@@ -195,7 +195,14 @@ Public Class LTFSMountFSSqliteBase
         Dim FileInfo As New Fsp.Interop.FileInfo
         If path.Length = 0 Then
             filedesc = New FileDesc _
-                With {.IsDirectory = True, .LTFSDirectory = LW.schema._directory(0),
+                With {.IsDirectory = True, .LTFSDirectory = new ltfsindex.directory() With{
+                     .name = "",
+                      .fullpath="/",
+                    .accesstime= LW.plabel.formattime,
+                    .creationtime= LW.plabel.formattime,
+                    .changetime= LW.plabel.formattime,
+                    .modifytime= LW.plabel.formattime
+                    },
                     .OperationId = Guid.NewGuid().ToString()}
             '            Console.WriteLine(($" New FileDesc GetSecurityByName： {FileName} {filedesc.OperationId}"))
             filedesc.GetFileInfo(FileInfo)
@@ -959,6 +966,7 @@ Public Class LTFSMountFSSqliteBase
                         SyncLock p
                             p.BlockNumber += 1
                             LW.CurrentHeight = p.BlockNumber
+                            DirProvider.UpdateCurrentHeight(LW.GetSqliteConnection(LW.Barcode), LW.Barcode, LW.CurrentHeight)
                         End SyncLock
                         If FileDesc.Sh IsNot Nothing Then
                             Dim startTimestamp1 = DateTime.Now
@@ -1027,7 +1035,7 @@ Public Class LTFSMountFSSqliteBase
             fileDesc_FileName = fileDesc.LTFSFile.name
         End If
 
-        DirProvider.DeleteFile(fileDesc.LTFSFile, LW.GetSqliteConnection(LW.Barcode),LW.Barcode)
+        DirProvider.DeleteFile(fileDesc.LTFSFile, LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
         Dim fileRecord = New LTFSWriter.FileRecord(fileDesc.LTFSFile.name, 0, "", Nothing)
         '                fileDesc = New FileDescriptor(fileName, path, New MemoryStream(), True)
         '                fileDesc.SetFileAttributes(fileAttributes Or CUInt(System.IO.FileAttributes.Archive))
@@ -1128,13 +1136,14 @@ Public Class LTFSMountFSSqliteBase
             fileDesc.UnwriteFile = Nothing
             fileDesc.LTFSFile.fileuid = LW.schema.highestfileuid + 1
             LW.schema.highestfileuid += 1
+            DirProvider.UpdateHightestFileUid(LW.GetSqliteConnection(LW.Barcode), LW.Barcode, LW.schema.highestfileuid)
             If fileDesc.Sh IsNot Nothing Then
                 fileDesc.Sh.ProcessFinalBlock()
                 Metric.OperationCounter.WithLabels("hashfile_finish").Inc()
                 fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.SHA1, fileDesc.Sh.SHA1Value)
                 fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.MD5, fileDesc.Sh.MD5Value)
                 fileDesc.Sh.StopFlag = True
-                DirProvider.InsertFile(fileDesc.LTFSFile, Path.GetDirectoryName(fileDesc.LTFSFile.fullpath), LW.GetSqliteConnection(LW.Barcode),LW.Barcode)
+                DirProvider.InsertFile(fileDesc.LTFSFile, Path.GetDirectoryName(fileDesc.LTFSFile.fullpath), LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
 
             End If
             WriteFileQueue.Enqueue(fileDesc)

@@ -1152,7 +1152,9 @@ Public Class LTFSWriter
                     Dim root As New TreeNode
 
                     root.Text = Barcode
-                    root.Tag = Barcode
+                    root.Tag = New ltfsindex.directory With {.name = Barcode, .readonly = False,
+                  .creationtime = plabel.formattime, .changetime = .creationtime,
+                  .accesstime = .creationtime, .modifytime = .creationtime, .backuptime = .creationtime, .fileuid = 1, .contents = New ltfsindex.contentsDef()}
                     root.ImageIndex = 0
                     TreeView1.Nodes.Add(root)
 
@@ -1514,6 +1516,7 @@ Public Class LTFSWriter
                 End If
 
             Catch ex As Exception
+                Console.WriteLine(ex.Message+ex.StackTrace)
                 PrintMsg(My.Resources.ResText_NavErr)
             End Try
         End If
@@ -1869,6 +1872,7 @@ Public Class LTFSWriter
                   }
             d1.contents._directory.Add(dT)
             Threading.Interlocked.Increment(schema.highestfileuid)
+            DirProvider.UpdateHightestFileUid(GetSqliteConnection(Barcode), Barcode, schema.highestfileuid)
         End If
         If Not ParallelAdd Then
             'PrintMsg($"添加目录: {dnew1.FullName} ")
@@ -1889,16 +1893,16 @@ Public Class LTFSWriter
                     '检查已有文件
                     SyncLock dT.contents._file
                         If dictionary.ContainsKey(f.Name) Then
-                                FileExist = True
+                            FileExist = True
                             Dim fe = dictionary(f.Name)
-                                SameFile = IsSameFile(f, fe)
+                            SameFile = IsSameFile(f, fe)
                             If OverWrite And Not SameFile Then
                                 Dim startTimestamp2 = DateTime.Now
                                 dT.contents._file.Remove(fe)
                                 Metric.FileOperationDurationHistogram.WithLabels(Barcode, "dT.contents._file.Remove(fe)", "").Observe((DateTime.Now - startTimestamp2).TotalMilliseconds)
                                 Metric.OperationProcessedGauge.WithLabels(Barcode, "add_file OverWrite And Not SameFile").Inc()
                             End If
-                            End If
+                        End If
                     End SyncLock
                     If FileExist And (SameFile OrElse Not OverWrite) Then Continue For
                     '检查写入队列
@@ -2388,140 +2392,140 @@ Public Class LTFSWriter
     End Sub
     '每次都额外操作时候必须清空，locate到EOD，为了让winfsp挂载时候拷贝不会把前面的数据给覆盖掉
     Public Shared WinFspPositionData As TapeUtils.PositionData
-    Public Dim RestorePosition As TapeUtils.PositionData
+    Public RestorePosition As TapeUtils.PositionData
     Public Sub RestoreFile(FileName As String, FileIndex As ltfsindex.file)
         Try
-        If Not FileName.StartsWith("\\") Then FileName = $"\\?\{FileName}"
-        Dim FileExist As Boolean = True
-        If Not IO.File.Exists(FileName) Then
-            FileExist = False
-        Else
-            Dim finfo As New IO.FileInfo(FileName)
-            If finfo.Length <> FileIndex.length Then
+            If Not FileName.StartsWith("\\") Then FileName = $"\\?\{FileName}"
+            Dim FileExist As Boolean = True
+            If Not IO.File.Exists(FileName) Then
                 FileExist = False
-            ElseIf finfo.CreationTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z") <> FileIndex.creationtime Then
-                FileExist = False
-                'ElseIf finfo.LastAccessTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z") <> FileIndex.accesstime Then
-                '    FileExist = False
-            ElseIf finfo.LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z") <> FileIndex.modifytime Then
-                FileExist = False
-            End If
-            If Not FileExist Then PrintMsg($"{My.Resources.ResText_OverwritingDF}{FileName} {finfo.Length}->{FileIndex.length}{vbCrLf _
+            Else
+                Dim finfo As New IO.FileInfo(FileName)
+                If finfo.Length <> FileIndex.length Then
+                    FileExist = False
+                ElseIf finfo.CreationTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z") <> FileIndex.creationtime Then
+                    FileExist = False
+                    'ElseIf finfo.LastAccessTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z") <> FileIndex.accesstime Then
+                    '    FileExist = False
+                ElseIf finfo.LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z") <> FileIndex.modifytime Then
+                    FileExist = False
+                End If
+                If Not FileExist Then PrintMsg($"{My.Resources.ResText_OverwritingDF}{FileName} {finfo.Length}->{FileIndex.length}{vbCrLf _
                                                   }ct{finfo.CreationTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z")}->{FileIndex.creationtime}{vbCrLf _
                                                   }at{finfo.LastAccessTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z")}->{FileIndex.accesstime}{vbCrLf _
                                                   }wt{finfo.LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff00Z")}->{FileIndex.modifytime}{vbCrLf _
                                                   }", LogOnly:=True)
-        End If
-        If FileExist Then
-            Threading.Interlocked.Increment(CurrentFilesProcessed)
-            Threading.Interlocked.Increment(TotalFilesProcessed)
+            End If
+            If FileExist Then
+                Threading.Interlocked.Increment(CurrentFilesProcessed)
+                Threading.Interlocked.Increment(TotalFilesProcessed)
 
-            Exit Sub
-        End If
-        If IO.File.Exists(FileName) Then
-            Dim fi As New IO.FileInfo(FileName)
-            fi.Attributes = fi.Attributes And Not IO.FileAttributes.ReadOnly
-            IO.File.Delete(FileName)
-        End If
-        IO.File.WriteAllBytes(FileName, {})
-        If FileIndex.length > 0 Then
-            Dim reffile As String = ""
-            If FileIndex.TempObj IsNot Nothing AndAlso TypeOf FileIndex.TempObj Is ltfsindex.file.refFile Then reffile = CType(FileIndex.TempObj, ltfsindex.file.refFile).FileName.ToString()
-            If reffile <> "" AndAlso IO.File.Exists(reffile) Then
-                IO.File.Copy(reffile, FileName, True)
+                Exit Sub
+            End If
+            If IO.File.Exists(FileName) Then
+                Dim fi As New IO.FileInfo(FileName)
+                fi.Attributes = fi.Attributes And Not IO.FileAttributes.ReadOnly
+                IO.File.Delete(FileName)
+            End If
+            IO.File.WriteAllBytes(FileName, {})
+            If FileIndex.length > 0 Then
+                Dim reffile As String = ""
+                If FileIndex.TempObj IsNot Nothing AndAlso TypeOf FileIndex.TempObj Is ltfsindex.file.refFile Then reffile = CType(FileIndex.TempObj, ltfsindex.file.refFile).FileName.ToString()
+                If reffile <> "" AndAlso IO.File.Exists(reffile) Then
+                    IO.File.Copy(reffile, FileName, True)
+                    Dim finfo As New IO.FileInfo(FileName)
+                    finfo.CreationTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.creationtime)
+                    finfo.LastWriteTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.modifytime)
+                    finfo.IsReadOnly = FileIndex.readonly
+                    finfo.LastAccessTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.accesstime)
+                    Threading.Interlocked.Add(TotalBytesProcessed, FileIndex.length)
+                    Threading.Interlocked.Add(CurrentBytesProcessed, FileIndex.length)
+                Else
+                    If FileIndex.TempObj Is Nothing OrElse TypeOf FileIndex.TempObj IsNot ltfsindex.file.refFile Then FileIndex.TempObj = New ltfsindex.file.refFile()
+                    CType(FileIndex.TempObj, ltfsindex.file.refFile).FileName = FileName
+                    Dim fs As New IO.FileStream(FileName, IO.FileMode.OpenOrCreate, IO.FileAccess.ReadWrite, IO.FileShare.Read, 8388608, IO.FileOptions.None)
+                    Try
+                        FileIndex.extentinfo.Sort(New Comparison(Of ltfsindex.file.extent)(Function(a As ltfsindex.file.extent, b As ltfsindex.file.extent)
+                                                                                               If a.startblock <> b.startblock Then Return a.startblock.CompareTo(b.startblock)
+                                                                                               Return a.fileoffset.CompareTo(b.fileoffset)
+                                                                                           End Function))
+                        For Each fe As ltfsindex.file.extent In FileIndex.extentinfo
+                            Dim succ As Boolean = False
+                            Do
+                                Dim BlockAddress As Long = fe.startblock
+                                Dim ByteOffset As Long = fe.byteoffset
+                                Dim FileOffset As Long = fe.fileoffset
+                                Dim Partition As Long = fe.partition
+                                Dim TotalBytes As Long = fe.bytecount
+                                'Dim p As New TapeUtils.PositionData(TapeDrive)
+                                If RestorePosition Is Nothing OrElse RestorePosition.BlockNumber <> BlockAddress OrElse RestorePosition.PartitionNumber <> GetPartitionNumber(fe.partition) Then
+                                    TapeUtils.Locate(TapeDrive, BlockAddress, GetPartitionNumber(Partition), TapeUtils.LocateDestType.Block)
+                                    RestorePosition = New TapeUtils.PositionData(TapeDrive)
+                                End If
+                                fs.Seek(FileOffset, IO.SeekOrigin.Begin)
+                                Dim ReadedSize As Long = 0
+                                While (ReadedSize < TotalBytes + ByteOffset) And Not StopFlag
+                                    Dim CurrentBlockLen As Integer = Math.Min(plabel.blocksize, TotalBytes + ByteOffset - ReadedSize)
+                                    Dim Data As Byte() = TapeUtils.ReadBlock(TapeDrive, Nothing, CurrentBlockLen, True)
+                                    SyncLock RestorePosition
+                                        RestorePosition.BlockNumber += 1
+                                    End SyncLock
+                                    CurrentBlockLen = Math.Min(Data.Length, TotalBytes + ByteOffset - ReadedSize)
+                                    '                                If Data.Length <> CurrentBlockLen OrElse CurrentBlockLen = 0 Then
+                                    '                                    PrintMsg($"Error reading at p{RestorePosition.PartitionNumber}b{RestorePosition.BlockNumber}: readed length {Data.Length} should be {CurrentBlockLen}", LogOnly:=True, ForceLog:=True)
+                                    '                                    succ = False
+                                    '                                    Exit Do
+                                    '                                End If
+                                    ReadedSize += CurrentBlockLen - ByteOffset
+                                    fs.Write(Data, ByteOffset, CurrentBlockLen - ByteOffset)
+                                    Threading.Interlocked.Add(TotalBytesProcessed, CurrentBlockLen - ByteOffset)
+                                    Threading.Interlocked.Add(CurrentBytesProcessed, CurrentBlockLen - ByteOffset)
+                                    ByteOffset = 0
+                                    While Pause
+                                        Threading.Thread.Sleep(10)
+                                    End While
+                                End While
+                                If StopFlag Then
+                                    fs.Close()
+                                    IO.File.Delete(FileName)
+                                    succ = True
+                                    Exit Do
+                                End If
+                                succ = True
+                                Exit Do
+                            Loop
+
+                            If Not succ Then
+                                PrintMsg($"{FileIndex.name}{My.Resources.ResText_RestoreErr}", ForceLog:=True)
+                                Exit For
+                            End If
+                            If StopFlag Then Exit Sub
+                        Next
+                    Catch ex As Exception
+                        PrintMsg($"{FileIndex.name}{My.Resources.ResText_RestoreErr}{ex.ToString}", ForceLog:=True)
+                    End Try
+
+                    fs.Flush()
+                    fs.Close()
+                    Dim finfo As New IO.FileInfo(FileName)
+                    Try
+                        finfo.CreationTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.creationtime)
+                        finfo.LastWriteTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.modifytime)
+                        finfo.IsReadOnly = FileIndex.readonly
+                        finfo.LastAccessTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.accesstime)
+
+                    Catch ex As Exception
+
+                    End Try
+                End If
+
+            Else
                 Dim finfo As New IO.FileInfo(FileName)
                 finfo.CreationTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.creationtime)
                 finfo.LastWriteTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.modifytime)
                 finfo.IsReadOnly = FileIndex.readonly
                 finfo.LastAccessTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.accesstime)
-                Threading.Interlocked.Add(TotalBytesProcessed, FileIndex.length)
-                Threading.Interlocked.Add(CurrentBytesProcessed, FileIndex.length)
-            Else
-                If FileIndex.TempObj Is Nothing OrElse TypeOf FileIndex.TempObj IsNot ltfsindex.file.refFile Then FileIndex.TempObj = New ltfsindex.file.refFile()
-                CType(FileIndex.TempObj, ltfsindex.file.refFile).FileName = FileName
-                Dim fs As New IO.FileStream(FileName, IO.FileMode.OpenOrCreate, IO.FileAccess.ReadWrite, IO.FileShare.Read, 8388608, IO.FileOptions.None)
-                Try
-                    FileIndex.extentinfo.Sort(New Comparison(Of ltfsindex.file.extent)(Function(a As ltfsindex.file.extent, b As ltfsindex.file.extent)
-                                                                                           If a.startblock <> b.startblock Then Return a.startblock.CompareTo(b.startblock)
-                                                                                           Return a.fileoffset.CompareTo(b.fileoffset)
-                                                                                       End Function))
-                    For Each fe As ltfsindex.file.extent In FileIndex.extentinfo
-                        Dim succ As Boolean = False
-                        Do
-                            Dim BlockAddress As Long = fe.startblock
-                            Dim ByteOffset As Long = fe.byteoffset
-                            Dim FileOffset As Long = fe.fileoffset
-                            Dim Partition As Long = fe.partition
-                            Dim TotalBytes As Long = fe.bytecount
-                            'Dim p As New TapeUtils.PositionData(TapeDrive)
-                            If RestorePosition Is Nothing OrElse RestorePosition.BlockNumber <> BlockAddress OrElse RestorePosition.PartitionNumber <> GetPartitionNumber(fe.partition) Then
-                                TapeUtils.Locate(TapeDrive, BlockAddress, GetPartitionNumber(Partition), TapeUtils.LocateDestType.Block)
-                                RestorePosition = New TapeUtils.PositionData(TapeDrive)
-                            End If
-                            fs.Seek(FileOffset, IO.SeekOrigin.Begin)
-                            Dim ReadedSize As Long = 0
-                            While (ReadedSize < TotalBytes + ByteOffset) And Not StopFlag
-                                Dim CurrentBlockLen As Integer = Math.Min(plabel.blocksize, TotalBytes + ByteOffset - ReadedSize)
-                                Dim Data As Byte() = TapeUtils.ReadBlock(TapeDrive, Nothing, CurrentBlockLen, True)
-                                SyncLock RestorePosition
-                                    RestorePosition.BlockNumber += 1
-                                End SyncLock
-                                CurrentBlockLen=Math.Min(Data.Length, TotalBytes + ByteOffset - ReadedSize)
-'                                If Data.Length <> CurrentBlockLen OrElse CurrentBlockLen = 0 Then
-'                                    PrintMsg($"Error reading at p{RestorePosition.PartitionNumber}b{RestorePosition.BlockNumber}: readed length {Data.Length} should be {CurrentBlockLen}", LogOnly:=True, ForceLog:=True)
-'                                    succ = False
-'                                    Exit Do
-'                                End If
-                                ReadedSize += CurrentBlockLen - ByteOffset
-                                fs.Write(Data, ByteOffset, CurrentBlockLen - ByteOffset)
-                                Threading.Interlocked.Add(TotalBytesProcessed, CurrentBlockLen - ByteOffset)
-                                Threading.Interlocked.Add(CurrentBytesProcessed, CurrentBlockLen - ByteOffset)
-                                ByteOffset = 0
-                                While Pause
-                                    Threading.Thread.Sleep(10)
-                                End While
-                            End While
-                            If StopFlag Then
-                                fs.Close()
-                                IO.File.Delete(FileName)
-                                succ = True
-                                Exit Do
-                            End If
-                            succ = True
-                            Exit Do
-                        Loop
-
-                        If Not succ Then
-                            PrintMsg($"{FileIndex.name}{My.Resources.ResText_RestoreErr}", ForceLog:=True)
-                            Exit For
-                        End If
-                        If StopFlag Then Exit Sub
-                    Next
-                Catch ex As Exception
-                    PrintMsg($"{FileIndex.name}{My.Resources.ResText_RestoreErr}{ex.ToString}", ForceLog:=True)
-                End Try
-
-                fs.Flush()
-                fs.Close()
-                Dim finfo As New IO.FileInfo(FileName)
-                Try
-                    finfo.CreationTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.creationtime)
-                    finfo.LastWriteTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.modifytime)
-                    finfo.IsReadOnly = FileIndex.readonly
-                    finfo.LastAccessTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.accesstime)
-
-                Catch ex As Exception
-
-                End Try
             End If
-
-        Else
-            Dim finfo As New IO.FileInfo(FileName)
-            finfo.CreationTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.creationtime)
-            finfo.LastWriteTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.modifytime)
-            finfo.IsReadOnly = FileIndex.readonly
-            finfo.LastAccessTimeUtc = TapeUtils.ParseTimeStamp(FileIndex.accesstime)
-        End If
         Catch ex As Exception
             PrintMsg($"error:{My.Resources.ResText_OverwritingDF}{FileName} StackTrace {ex.StackTrace}", LogOnly:=True)
         End Try
@@ -2707,6 +2711,7 @@ Public Class LTFSWriter
             p = GetPos
             PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
             CurrentHeight = p.BlockNumber
+            DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode, CurrentHeight)
             Invoke(Sub() Text = GetLocInfo())
         ElseIf CurrentHeight > 0 Then
             Dim p As TapeUtils.PositionData = GetPos
@@ -3124,6 +3129,7 @@ Public Class LTFSWriter
                                         If p.EOP Then PrintMsg(My.Resources.ResText_EWEOM, True)
                                         PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
                                         CurrentHeight = p.BlockNumber
+                                        DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode, CurrentHeight)
                                     End If
                                 Else
                                     fr.File.SetXattr(ltfsindex.file.xattr.HashType.SHA1, "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709")
@@ -3519,10 +3525,11 @@ Public Class LTFSWriter
                            .partition = ltfsIndexInfoDto.LTFSIndex.previousgenerationlocation.partition,
                            .startblock = ltfsIndexInfoDto.LTFSIndex.previousgenerationlocation.startblock
                            },
-                           .highestfileuid = ltfsIndexInfoDto.LTFSIndex.highestfileuid
-                           }
+                           .highestfileuid = ltfsIndexInfoDto.LTFSIndex.highestfileuid}
                         CurrentHeight = ltfsIndexInfoDto.CurrentHeight
-
+                        schema._directory.Add(New ltfsindex.directory With {.name = Barcode, .readonly = False,
+                                                 .creationtime = plabel.formattime, .changetime = .creationtime,
+                                                 .accesstime = .creationtime, .modifytime = .creationtime, .backuptime = .creationtime, .fileuid = 1, .contents = New ltfsindex.contentsDef()})
                     End If
                     While True
                         Threading.Thread.Sleep(0)

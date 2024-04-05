@@ -177,10 +177,10 @@ Public Class DirProvider
     Public Shared Sub UpdateHightestFileUid(connection As SQLiteConnection, BarCode As String,highestfileuid As Int64)
         Dim ltfsindexInfoDto = GetLTFSIndexInfo(connection, BarCode)
         If ltfsindexInfoDto IsNot Nothing Then
-            if ltfsindexInfoDto.LTFSIndex.highestfileuid <= highestfileuid Then
-                throw new Exception("highestfileuid is less than current highestfileuid")
+            if ltfsindexInfoDto.LTFSIndex.highestfileuid >= highestfileuid Then
+                throw new Exception($"highestfileuid is less than current highestfileuid :ltfsindexInfoDto.LTFSIndex.highestfileuid:{ltfsindexInfoDto.LTFSIndex.highestfileuid},highestfileuid:{highestfileuid}")
             End If
-                Dim updateCommand As New SQLiteCommand("update ltfs_index_info set highestfileuid=@highestfileuid ")
+                Dim updateCommand As New SQLiteCommand("update ltfs_index_info set highestfileuid=@highestfileuid ",connection)
             updateCommand.Parameters.AddWithValue("@highestfileuid", highestfileuid)
             LTFSWriter.FuncSqliteTrans(Sub()
                     Metric.FuncFileOperationDuration(Sub()
@@ -195,10 +195,10 @@ Public Class DirProvider
     Public Shared Sub UpdateCurrentHeight(connection As SQLiteConnection, BarCode As String,currentHeight As Int64)
         Dim ltfsindexInfoDto = GetLTFSIndexInfo(connection, BarCode)
         If ltfsindexInfoDto IsNot Nothing Then
-            if ltfsindexInfoDto.currentHeight <= currentHeight Then
-                throw new Exception("currentHeight is less than current currentHeight")
+            if ltfsindexInfoDto.currentHeight >= currentHeight Then
+                throw new Exception($"currentHeight is less than current currentHeight,ltfsindexInfoDto.currentHeight:{ltfsindexInfoDto.currentHeight} ,currentHeight:{currentHeight}")
             End If
-            Dim updateCommand As New SQLiteCommand("update ltfs_index_info set current_height=@current_height ")
+            Dim updateCommand As New SQLiteCommand("update ltfs_index_info set current_height=@current_height ",connection)
             updateCommand.Parameters.AddWithValue("@current_height", currentHeight)
             LTFSWriter.FuncSqliteTrans(Sub()
                 Metric.FuncFileOperationDuration(Sub()
@@ -757,17 +757,19 @@ Public Class DirProvider
                                                      Dim dirs = QueryDirListWithWhere($"ParentPath='{ChildPath}' and isdirectory=1", connection)
                                                      For Each dir As ltfsindex.directory In dirs
                                                          IterDeleteDir(dir.fullpath)
-                                                         Dim queryCommand As New SQLiteCommand(
-                    $"delete from ltfs_index WHERE ParentPath='{dir.fullpath}' or FullPath='{dir.fullpath}'",
-                    connection
-                    )
-                                                         LTFSWriter.FuncSqliteTrans(Sub()
-                                                                                        Metric.FuncFileOperationDuration(Sub()
-                                                                                                                             queryCommand.ExecuteNonQuery()
-                                                                                                                         End Sub, {"", "Sqlite_DeleteDir", ""})
-                                                                                    End Sub, BarCode)
+'                                                         Dim sql=$"delete from ltfs_index WHERE ParentPath='{dir.fullpath}' "
+'                                                         Console.WriteLine(sql)
+'                                                         Dim queryCommand As New SQLiteCommand(
+'                                                             sql,connection)
+'                                                         LTFSWriter.FuncSqliteTrans(Sub()
+'                                                                                        Metric.FuncFileOperationDuration(Sub()
+'                                                                                                                             queryCommand.ExecuteNonQuery()
+'                                                                                                                         End Sub, {"", "Sqlite_DeleteDir", ""})
+'                                                                                    End Sub, BarCode)
                                                      Next
-                                                     Dim queryCommand2 As New SQLiteCommand($"delete from ltfs_index WHERE  FullPath='{Path}'", connection)
+                                                     Dim sql2=$"delete from ltfs_index WHERE  FullPath='{ChildPath}' or ParentPath='{ChildPath}'"
+                                                     Console.WriteLine(sql2)
+                                                     Dim queryCommand2 As New SQLiteCommand(sql2, connection)
                                                      LTFSWriter.FuncSqliteTrans(Sub()
                                                                                     Metric.FuncFileOperationDuration(Sub()
                                                                                                                          queryCommand2.ExecuteNonQuery()
