@@ -210,19 +210,15 @@ Public Class LTFSMountFSSqliteBase
             Return STATUS_SUCCESS
         End If
         Dim FileExist As Boolean = False
-        Dim LTFSDir = DirProvider.QueryDir(FileName, LW.GetSqliteConnection(LW.Barcode))
-        If Not LTFSDir Is Nothing Then
+        Dim LTFSDirOrFile = DirProvider.QueryFileWithWhere($"fullpath='{FileName}'", LW.GetSqliteConnection(LW.Barcode))
+        If LTFSDirOrFile.Count=0 Then
+            FileExist = False
+        else
             FileExist = True
-            filedesc = New FileDesc _
-                With {.IsDirectory = True, .LTFSDirectory = LTFSDir, .OperationId = Guid.NewGuid().ToString()}
-
-        Else
-            Dim LTFSFile = DirProvider.QueryFile(FileName, LW.GetSqliteConnection(LW.Barcode))
-            If Not LTFSFile Is Nothing Then
-                FileExist = True
-                filedesc = New FileDesc _
-                     With {.IsDirectory = False, .LTFSFile = LTFSFile,
-                         .OperationId = Guid.NewGuid().ToString()}
+            if LTFSDirOrFile(0).isDirectory then 
+                filedesc = New FileDesc With {.IsDirectory = True, .LTFSDirectory = DirProvider.ConvertFileToDir(LTFSDirOrFile(0)), .OperationId = Guid.NewGuid().ToString()}
+            Else 
+                filedesc = New FileDesc With {.IsDirectory = False, .LTFSFile = LTFSDirOrFile(0),.OperationId = Guid.NewGuid().ToString()}
             End If
         End If
 
@@ -268,26 +264,20 @@ Public Class LTFSMountFSSqliteBase
             End If
             Dim FileExist As Boolean = False
             If path.Length = 0 Then
-                fileDesc = New FileDesc _
-                    With {.IsDirectory = True, .LTFSDirectory = LW.schema._directory(0),
-                        .OperationId = Guid.NewGuid().ToString()}
+                fileDesc = New FileDesc With {.IsDirectory = True, .LTFSDirectory = LW.schema._directory(0),.OperationId = Guid.NewGuid().ToString()}
                 '            Console.WriteLine(($" New FileDesc GetSecurityByName： {FileName} {filedesc.OperationId}"))
                 fileDesc.GetFileInfo(FileInfo)
                 Return STATUS_SUCCESS
             End If
-            Dim LTFSDir = DirProvider.QueryDir(FileName, LW.GetSqliteConnection(LW.Barcode))
-            If Not LTFSDir Is Nothing Then
+            Dim LTFSDirOrFile = DirProvider.QueryFileWithWhere($"fullpath='{FileName}'", LW.GetSqliteConnection(LW.Barcode))
+            If LTFSDirOrFile.Count=0 Then
+                FileExist = False
+            else
                 FileExist = True
-                fileDesc = New FileDesc _
-                    With {.IsDirectory = True, .LTFSDirectory = LTFSDir, .OperationId = Guid.NewGuid().ToString()}
-
-            Else
-                Dim LTFSFile = DirProvider.QueryFile(FileName, LW.GetSqliteConnection(LW.Barcode))
-                If Not LTFSFile Is Nothing Then
-                    FileExist = True
-                    fileDesc = New FileDesc _
-                        With {.IsDirectory = False, .LTFSFile = LTFSFile,
-                            .OperationId = Guid.NewGuid().ToString()}
+                if LTFSDirOrFile(0).isDirectory then 
+                    filedesc = New FileDesc With {.IsDirectory = True, .LTFSDirectory = DirProvider.ConvertFileToDir(LTFSDirOrFile(0)), .OperationId = Guid.NewGuid().ToString()}
+                Else 
+                    filedesc = New FileDesc With {.IsDirectory = False, .LTFSFile = LTFSDirOrFile(0),.OperationId = Guid.NewGuid().ToString()}
                 End If
             End If
             If FileExist Then
@@ -337,9 +327,9 @@ Public Class LTFSMountFSSqliteBase
                     With .LTFSFile.extentinfo(ei)
                         If Offset >= .fileoffset + .bytecount Then Continue For
                         Dim CurrentFileOffset As Long = .fileoffset
-
-                        TapeUtils.Locate(TapeDrive, .startblock, LW.GetPartitionNumber(.partition))
-
+                        Metric.FuncFileOperationDuration(Sub()
+                            TapeUtils.Locate(TapeDrive, .startblock, LW.GetPartitionNumber(.partition))
+                        End Sub, {"", "Read_Locate", ""})
                         Dim blkBuffer As Byte() = TapeUtils.ReadBlock(TapeDrive)
                         CurrentFileOffset += blkBuffer.Length - .byteoffset
                         While CurrentFileOffset <= Offset
@@ -838,9 +828,9 @@ Public Class LTFSMountFSSqliteBase
                 Dim p As TapeUtils.PositionData
                 If FileDesc.Position Is Nothing Then
                     If LW.WinFspPositionData Is Nothing OrElse
-                       LW.TotalFilesProcessed - LastNewPositionFileCount > 300 OrElse
-                       LW.TotalBytesProcessed - LastNewPositionSize > 300 * 1024 * 1024 Then
-                        TapeUtils.Locate(TapeDrive, LW.CurrentHeight, LW.DataPartition)
+                       LW.TotalFilesProcessed - LastNewPositionFileCount > 1000 OrElse
+                       LW.TotalBytesProcessed - LastNewPositionSize > 300L * 1024 * 1024 Then
+'                        TapeUtils.Locate(TapeDrive, LW.CurrentHeight, LW.DataPartition)
                         LW.WinFspPositionData = New TapeUtils.PositionData(TapeDrive)
                         LastNewPositionSize = LW.TotalBytesProcessed
                         LastNewPositionFileCount = LW.TotalFilesProcessed
@@ -856,7 +846,9 @@ Public Class LTFSMountFSSqliteBase
                     p = FileDesc.Position
                 End If
                 If p.BlockNumber < LW.CurrentHeight Then
-                    TapeUtils.Locate(TapeDrive, LW.CurrentHeight, LW.DataPartition)
+                    Metric.FuncFileOperationDuration(Sub()
+                       TapeUtils.Locate(TapeDrive, LW.CurrentHeight, LW.DataPartition)
+                    End Sub,  {"", "TapeUtils_Write_Locate", ""})
                     p.BlockNumber = LW.CurrentHeight
                     End
 

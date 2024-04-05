@@ -304,7 +304,11 @@ Public Class DirProvider
         ' 执行插入操作
         LTFSWriter.FuncSqliteTrans(Sub()
             Metric.FuncFileOperationDuration(Sub()
-                insertCommand.ExecuteNonQuery()
+                try
+                    insertCommand.ExecuteNonQuery()
+                Catch ex As Exception
+                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} {JsonConvert.SerializeObject(insertCommand.Parameters)} 插入失败，{ex.Message}")
+                end try
             End Sub, {"", "Sqlite_InsertFile", ""})
         End Sub, BarCode)
 
@@ -427,18 +431,14 @@ Public Class DirProvider
                         ElseIf f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) <> "" Then
 
                             LW.PrintMsg(
-                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath _
-                                           } sha1logged={f.sha1} sha1calc={result.Item("SHA1") _
-                                           } size=｛f.length｝", ForceLog := True, Warning := True)
+                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath} sha1logged={f.sha1} sha1calc={result.Item("SHA1")} size=｛f.length｝", ForceLog := True, Warning := True)
                             Threading.Interlocked.Increment(ec)
                         End If
                         If f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) = result.Item("MD5") _
                                                 Then
                         ElseIf f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) <> "" Then
                             LW.PrintMsg(
-                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.name _
-                                           } sha1logged={f.sha1} sha1calc={result.Item("SHA1") _
-                                           } size=｛f.length｝", ForceLog := True, Warning := True)
+                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath} sha1logged={f.sha1} sha1calc={result.Item("SHA1")} size=｛f.length｝", ForceLog := True, Warning := True)
                             Threading.Interlocked.Increment(ec)
                         End If
                     End If
@@ -572,6 +572,7 @@ Public Class DirProvider
                 f.accesstime = Convert.ToString(reader("AccessTime"))
                 f.backuptime = Convert.ToString(reader("BackupTime"))
                 f.fileuid = Convert.ToInt64(reader("fileuid"))
+                f.isDirectory=Convert.ToBoolean(reader("isDirectory"))
                 If reader("Length") IsNot DBNull.Value Then
                     f.length = Convert.ToInt64(reader("Length"))
                     f.extentinfo =
@@ -587,15 +588,13 @@ Public Class DirProvider
                 Dim f As ltfsindex.file = New ltfsindex.file()
                 f.fullpath = reader("FullPath").ToString()
                 f.name = reader("Name").ToString()
-
-
                 f.creationtime = Convert.ToString(reader("CreationTime"))
                 f.changetime = Convert.ToString(reader("ChangeTime"))
                 f.modifytime = Convert.ToString(reader("ModifyTime"))
                 f.accesstime = Convert.ToString(reader("AccessTime"))
                 f.backuptime = Convert.ToString(reader("BackupTime"))
                 f.fileuid = Convert.ToInt64(reader("fileuid"))
-
+                f.isDirectory=Convert.ToBoolean(reader("isDirectory"))
                 lst.Add(f)
             End If
 
@@ -617,28 +616,11 @@ Public Class DirProvider
             Return New List(Of ltfsindex.directory)
         End If
         For Each file In files
-            Dim newdir As New ltfsindex.directory With {
-                    .name = file.name,
-                    .creationtime = file.creationtime,
-                    .fileuid = file.fileuid,
-                    .backuptime = file.backuptime,
-                    .accesstime = file.accesstime,
-                    .changetime = file.changetime,
-                    .modifytime = file.modifytime,
-                    .readonly = file.readonly,
-                    .fullpath = file.fullpath
-                    }
-            result.Add(newdir)
+            result.Add(ConvertFileToDir(file))
         Next
         Return result
     End Function
-    Public Shared Function QueryDir(Path As String, connection As SQLiteConnection) As ltfsindex.directory
-
-        Dim files = QueryFileWithWhere($"FullPath='{Path}' and isdirectory=1", connection)
-        if files.Count = 0 Then
-            Return Nothing
-        End If
-        Dim file = files(0)
+    Public Shared Function ConvertFileToDir(file As ltfsindex.file) As ltfsindex.directory
         Dim newdir As New ltfsindex.directory With {
                 .name = file.name,
                 .creationtime = file.creationtime,
@@ -651,6 +633,15 @@ Public Class DirProvider
                 .fullpath = file.fullpath
                 }
         Return newdir
+    End Function
+    Public Shared Function QueryDir(Path As String, connection As SQLiteConnection) As ltfsindex.directory
+
+        Dim files = QueryFileWithWhere($"FullPath='{Path}' and isdirectory=1", connection)
+        if files.Count = 0 Then
+            Return Nothing
+        End If
+        Dim file = files(0)
+        return ConvertFileToDir(file)
     End Function
 
 

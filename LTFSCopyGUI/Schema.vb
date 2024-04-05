@@ -63,6 +63,7 @@ Public Class ltfsindex
             Public FileName As String
         End Class
         <Xml.Serialization.XmlIgnore> Public fullpath As String
+        <Xml.Serialization.XmlIgnore> Public isDirectory As Boolean
         <Xml.Serialization.XmlIgnore> Public Selected As Boolean = True
         <Xml.Serialization.XmlIgnore> Public WriteedOffset As Long = 0
         <Xml.Serialization.XmlIgnore> Public WrittenBytes As Long = 0

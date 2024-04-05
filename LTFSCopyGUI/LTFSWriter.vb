@@ -218,7 +218,7 @@ Public Class LTFSWriter
                 Else
                     ' 检查是否超过1秒
                     Dim elapsedTime As TimeSpan = DateTime.Now - startTime
-                    If elapsedTime.TotalSeconds >= 5 Then
+                    If elapsedTime.TotalSeconds >= 1 Then
                         Exit While
                     End If
                 End If
@@ -629,16 +629,17 @@ Public Class LTFSWriter
             End With
             ParentDirectory.contents.UnwrittenFiles.Add(File)
         End Sub
-        Public Sub New(Name As String, Length As Long, RelativePath As String, ParentDir As ltfsindex.directory)
+        Public Sub New(Name As String, Length As Long, fullpath As String, ParentDir As ltfsindex.directory)
              ParentDirectory = ParentDir
             File = New ltfsindex.file With {
                 .name = Name,
+                .fullpath = fullpath,
                 .fileuid = -1,
                 .length = Length,
                 .readonly = False,
                 .openforwrite = False}
             File.SetXattr("diy.Computer", Environment.MachineName)
-            File.SetXattr("diy.RelativePath", RelativePath)
+'            File.SetXattr("diy.RelativePath", RelativePath)
 
             With File
                 Try
