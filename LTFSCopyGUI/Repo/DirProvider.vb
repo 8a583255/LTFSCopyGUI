@@ -752,7 +752,30 @@ Public Class DirProvider
             End Sub, {"", "Sqlite_UpdateBaseInfo", ""})
         End Sub, BarCode)
     End Sub
-
+    Public Shared Sub DeleteDir(Path As String, connection As SQLiteConnection, BarCode As String)
+        Dim IterDeleteDir As Action(Of String) = Sub(ChildPath As String)
+                                                     Dim dirs = QueryDirListWithWhere($"ParentPath='{ChildPath}' and isdirectory=1", connection)
+                                                     For Each dir As ltfsindex.directory In dirs
+                                                         IterDeleteDir(dir.fullpath)
+                                                         Dim queryCommand As New SQLiteCommand(
+                    $"delete from ltfs_index WHERE ParentPath='{dir.fullpath}' or FullPath='{dir.fullpath}'",
+                    connection
+                    )
+                                                         LTFSWriter.FuncSqliteTrans(Sub()
+                                                                                        Metric.FuncFileOperationDuration(Sub()
+                                                                                                                             queryCommand.ExecuteNonQuery()
+                                                                                                                         End Sub, {"", "Sqlite_DeleteDir", ""})
+                                                                                    End Sub, BarCode)
+                                                     Next
+                                                     Dim queryCommand2 As New SQLiteCommand($"delete from ltfs_index WHERE  FullPath='{Path}'", connection)
+                                                     LTFSWriter.FuncSqliteTrans(Sub()
+                                                                                    Metric.FuncFileOperationDuration(Sub()
+                                                                                                                         queryCommand2.ExecuteNonQuery()
+                                                                                                                     End Sub, {"", "Sqlite_DeleteDir", ""})
+                                                                                End Sub, BarCode)
+                                                 End Sub
+        IterDeleteDir(Path)
+    End Sub
     Public Shared Sub DeleteFile(ltfsFile As ltfsindex.file, connection As SQLiteConnection, BarCode As String)
         Dim queryCommand As New SQLiteCommand(
             $"delete from ltfs_index 

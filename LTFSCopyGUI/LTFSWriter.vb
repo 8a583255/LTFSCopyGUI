@@ -2075,46 +2075,58 @@ Public Class LTFSWriter
         If TreeView1.SelectedNode IsNot Nothing Then
             Dim d As ltfsindex.directory = TreeView1.SelectedNode.Tag
             If TreeView1.SelectedNode.Parent IsNot Nothing AndAlso MessageBox.Show($"{My.Resources.ResText_DelConfrm}{d.name}", My.Resources.ResText_Confirm, MessageBoxButtons.OKCancel) = DialogResult.OK Then
-                Dim pd As ltfsindex.directory = TreeView1.SelectedNode.Parent.Tag
-                pd.contents._directory.Remove(d)
-                If TotalBytesUnindexed = 0 Then TotalBytesUnindexed = 1
-                Dim IterAllDirectory As Action(Of ltfsindex.directory) =
-                    Sub(d1 As ltfsindex.directory)
-                        Dim RList As New List(Of FileRecord)
-                        SyncLock d1.contents.UnwrittenFiles
-                            For Each f As ltfsindex.file In d1.contents.UnwrittenFiles
-                                UFReadCount.Inc()
-                                For Each fr As FileRecord In UnwrittenFiles
-                                    If fr.File Is f Then
-                                        RList.Add(fr)
-                                    End If
+                If IsSqliteTreeView Then
+                    Try
+                        DirProvider.DeleteDir(d.fullpath, GetSqliteConnection(Barcode), Barcode)
+                    Catch ex As Exception
+                        Console.WriteLine(ex.Message + ex.StackTrace)
+                        MessageBox.Show(ex.Message)
+
+                    End Try
+
+                Else
+                    Dim pd As ltfsindex.directory = TreeView1.SelectedNode.Parent.Tag
+                    pd.contents._directory.Remove(d)
+                    If TotalBytesUnindexed = 0 Then TotalBytesUnindexed = 1
+                    Dim IterAllDirectory As Action(Of ltfsindex.directory) =
+                        Sub(d1 As ltfsindex.directory)
+                            Dim RList As New List(Of FileRecord)
+                            SyncLock d1.contents.UnwrittenFiles
+                                For Each f As ltfsindex.file In d1.contents.UnwrittenFiles
+                                    UFReadCount.Inc()
+                                    For Each fr As FileRecord In UnwrittenFiles
+                                        If fr.File Is f Then
+                                            RList.Add(fr)
+                                        End If
+                                    Next
+                                    UFReadCount.Dec()
                                 Next
-                                UFReadCount.Dec()
-                            Next
-                        End SyncLock
+                            End SyncLock
 
-                        For Each fr As FileRecord In RList
-                            While True
-                                Threading.Thread.Sleep(0)
-                                SyncLock UFReadCount
-                                    If UFReadCount > 0 Then Continue While
-                                    UnwrittenFiles.Remove(fr)
-                                    Exit While
-                                End SyncLock
-                            End While
-                        Next
-                        SyncLock d1.contents._directory
-                            For Each d2 As ltfsindex.directory In d1.contents._directory
-                                IterAllDirectory(d2)
+                            For Each fr As FileRecord In RList
+                                While True
+                                    Threading.Thread.Sleep(0)
+                                    SyncLock UFReadCount
+                                        If UFReadCount > 0 Then Continue While
+                                        UnwrittenFiles.Remove(fr)
+                                        Exit While
+                                    End SyncLock
+                                End While
                             Next
-                        End SyncLock
+                            SyncLock d1.contents._directory
+                                For Each d2 As ltfsindex.directory In d1.contents._directory
+                                    IterAllDirectory(d2)
+                                Next
+                            End SyncLock
 
-                    End Sub
-                IterAllDirectory(d)
-                If TreeView1.SelectedNode.Parent IsNot Nothing AndAlso TreeView1.SelectedNode.Parent.Tag IsNot Nothing AndAlso TypeOf (TreeView1.SelectedNode.Parent.Tag) Is ltfsindex.directory Then
-                    TreeView1.SelectedNode = TreeView1.SelectedNode.Parent
+                        End Sub
+                    IterAllDirectory(d)
+                    If TreeView1.SelectedNode.Parent IsNot Nothing AndAlso TreeView1.SelectedNode.Parent.Tag IsNot Nothing AndAlso TypeOf (TreeView1.SelectedNode.Parent.Tag) Is ltfsindex.directory Then
+                        TreeView1.SelectedNode = TreeView1.SelectedNode.Parent
+                    End If
+                    If TotalBytesUnindexed = 0 Then TotalBytesUnindexed = 1
                 End If
-                If TotalBytesUnindexed = 0 Then TotalBytesUnindexed = 1
+
                 RefreshDisplay()
             End If
         End If
