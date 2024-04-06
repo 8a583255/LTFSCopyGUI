@@ -958,7 +958,7 @@ Public Class LTFSMountFSSqliteBase
                         SyncLock p
                             p.BlockNumber += 1
                             LW.CurrentHeight = p.BlockNumber
-                            DirProvider.UpdateCurrentHeight(LW.GetSqliteConnection(LW.Barcode), LW.Barcode, LW.CurrentHeight)
+                            DirProvider.UpdateCurrentHeight(LW.GetSqliteConnection(LW.Barcode), LW.Barcode, LW.CurrentHeight,LW._TotalBytesUnindexed)
                         End SyncLock
                         If FileDesc.Sh IsNot Nothing Then
                             Dim startTimestamp1 = DateTime.Now

@@ -147,7 +147,6 @@ Partial Class LTFSWriter
         Me.读取数据区索引ToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.加载外部索引ToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.备份当前索引ToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
-        Me.导出为sqliteToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.数据操作ToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.写入数据ToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.更新数据区索引ToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
@@ -211,7 +210,6 @@ Partial Class LTFSWriter
         Me.ToolStripButton5 = New System.Windows.Forms.ToolStripButton()
         Me.ToolStripButton6 = New System.Windows.Forms.ToolStripButton()
         Me.ToolStripButton3 = New System.Windows.Forms.ToolStripButton()
-        Me.TreeMode = New System.Windows.Forms.ToolStripButton()
         Me.Timer2 = New System.Windows.Forms.Timer(Me.components)
         Me.StatusStrip2 = New System.Windows.Forms.StatusStrip()
         Me.ToolStripStatusLabel3 = New System.Windows.Forms.ToolStripStatusLabel()
@@ -338,7 +336,6 @@ Partial Class LTFSWriter
         Me.ListView1.Columns.AddRange(New System.Windows.Forms.ColumnHeader() {Me.Column_name, Me.Column_length, Me.Column_creationtime, Me.Column_sha1, Me.Column_fileuid, Me.Column_openforwrite, Me.Column_readonly, Me.Column_changetime, Me.Column_modifytime, Me.Column_accesstime, Me.Column_backuptime, Me.Column_tag, Me.Column_StartBlock, Me.Column_Partition, Me.Column_FriendlyLen, Me.Column_writtenBytes, Me.Column_md5})
         Me.ListView1.ContextMenuStrip = Me.ContextMenuStrip1
         resources.ApplyResources(Me.ListView1, "ListView1")
-        Me.ListView1.HideSelection = False
         Me.ListView1.Name = "ListView1"
         Me.ListView1.ShowGroups = False
         Me.ListView1.ShowItemToolTips = True
@@ -771,7 +768,7 @@ Partial Class LTFSWriter
         '
         '索引ToolStripMenuItem
         '
-        Me.索引ToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.读取索引ToolStripMenuItem, Me.读取数据区索引ToolStripMenuItem, Me.加载外部索引ToolStripMenuItem, Me.备份当前索引ToolStripMenuItem, Me.导出为sqliteToolStripMenuItem})
+        Me.索引ToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.读取索引ToolStripMenuItem, Me.读取数据区索引ToolStripMenuItem, Me.加载外部索引ToolStripMenuItem, Me.备份当前索引ToolStripMenuItem})
         Me.索引ToolStripMenuItem.Name = "索引ToolStripMenuItem"
         resources.ApplyResources(Me.索引ToolStripMenuItem, "索引ToolStripMenuItem")
         '
@@ -794,11 +791,6 @@ Partial Class LTFSWriter
         '
         resources.ApplyResources(Me.备份当前索引ToolStripMenuItem, "备份当前索引ToolStripMenuItem")
         Me.备份当前索引ToolStripMenuItem.Name = "备份当前索引ToolStripMenuItem"
-        '
-        '导出为sqliteToolStripMenuItem
-        '
-        Me.导出为sqliteToolStripMenuItem.Name = "导出为sqliteToolStripMenuItem"
-        resources.ApplyResources(Me.导出为sqliteToolStripMenuItem, "导出为sqliteToolStripMenuItem")
         '
         '数据操作ToolStripMenuItem
         '
@@ -1122,7 +1114,7 @@ Partial Class LTFSWriter
         'ToolStrip1
         '
         resources.ApplyResources(Me.ToolStrip1, "ToolStrip1")
-        Me.ToolStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ToolStripButton1, Me.ToolStripButton2, Me.ToolStripButton4, Me.ToolStripButton5, Me.ToolStripButton6, Me.ToolStripButton3, Me.TreeMode})
+        Me.ToolStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ToolStripButton1, Me.ToolStripButton2, Me.ToolStripButton4, Me.ToolStripButton5, Me.ToolStripButton6, Me.ToolStripButton3})
         Me.ToolStrip1.Name = "ToolStrip1"
         '
         'ToolStripButton1
@@ -1160,12 +1152,6 @@ Partial Class LTFSWriter
         Me.ToolStripButton3.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image
         resources.ApplyResources(Me.ToolStripButton3, "ToolStripButton3")
         Me.ToolStripButton3.Name = "ToolStripButton3"
-        '
-        'TreeMode
-        '
-        Me.TreeMode.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image
-        resources.ApplyResources(Me.TreeMode, "TreeMode")
-        Me.TreeMode.Name = "TreeMode"
         '
         'Timer2
         '
@@ -1372,6 +1358,4 @@ Partial Class LTFSWriter
     Friend WithEvents 移动到索引区ToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents 查找指定位置前的索引ToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents Column_md5 As ColumnHeader
-    Friend WithEvents TreeMode As ToolStripButton
-    Friend WithEvents 导出为sqliteToolStripMenuItem As ToolStripMenuItem
 End Class

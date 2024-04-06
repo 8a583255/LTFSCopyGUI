@@ -25,9 +25,33 @@ Public Class DirProvider
     End Function
 
     Public Shared Sub CreateDatabaseAndTable(conn As SQLiteConnection)
+        Dim versionNumber As Integer = 1 ' 初始版本号
         ' 如果数据库不存在，此操作将会创建它
         ' 因为SQLite会在首次连接时自动创建数据库文件
+        Dim createVersionTableCommand As New SQLiteCommand(
+            "CREATE TABLE IF NOT EXISTS version (
+                number INTEGER
+                );",
+            conn
+            )
+        createVersionTableCommand.ExecuteNonQuery()
 
+        ' 检查是否已经存在版本号记录
+        Dim checkVersionCommand As New SQLiteCommand(
+            "SELECT COUNT(*) FROM version;",
+            conn
+            )
+        Dim existingRecords As Integer = Convert.ToInt32(checkVersionCommand.ExecuteScalar())
+
+        ' 如果不存在版本号记录，则插入初始版本号
+        If existingRecords = 0 Then
+            Dim insertVersionCommand As New SQLiteCommand(
+                "INSERT INTO version (number) VALUES (@number);",
+                conn
+                )
+            insertVersionCommand.Parameters.AddWithValue("@number", versionNumber)
+            insertVersionCommand.ExecuteNonQuery()
+        End If
         ' 创建表
         Dim createTableCommand As New SQLiteCommand(
             "CREATE TABLE IF NOT EXISTS ltfs_index (
@@ -102,12 +126,35 @@ Public Class DirProvider
                 prelocation_partition TEXT  COLLATE NOCASE,
                 prelocation_startblock INTEGER  ,
                 highestfileuid INTEGER,
-                current_height INTEGER
+                current_height INTEGER,
+                TotalBytesProcessed INTEGER,
+                CurrentBytesProcessed INTEGER,
+                TotalBytesUnindexed INTEGER
                 );",
          conn
          )
         createInfoTableCommand.ExecuteNonQuery()
-  
+
+    End Sub
+
+    Public Shared Sub UpdateSchema(connection As SQLiteConnection, plabel As ltfslabel, schema As ltfsindex, currentHeight As Int64, BarCode As String)
+        Dim ExistsCommand As New SQLiteCommand(
+            "SELECT COUNT(*) FROM ltfs_index_info ",
+            connection
+            )
+        Dim ExistsResult As Integer = CInt(ExistsCommand.ExecuteScalar())
+        If ExistsResult > 0 Then
+
+            Dim DelCommand As New SQLiteCommand(
+            "Delete from FROM ltfs_index_info ",
+            connection
+            )
+            Dim DelCommandResult As Integer = CInt(ExistsCommand.ExecuteScalar())
+            InitializeLTFSIndexInfo(connection, plabel, schema, currentHeight, BarCode)
+
+        ElseIf ExistsResult > 1 Then
+            Throw New Exception("ltfs_index_info table has more than one record")
+        End If
     End Sub
     Public Shared Sub InitializeLTFSIndexInfo(connection As SQLiteConnection, plabel As ltfslabel, schema As ltfsindex, currentHeight As Int64, BarCode As String)
         Dim ExistsCommand As New SQLiteCommand(
@@ -117,8 +164,8 @@ Public Class DirProvider
         Dim ExistsResult As Integer = CInt(ExistsCommand.ExecuteScalar())
         If ExistsResult = 0 Then
             Dim InsertCommand As New SQLiteCommand(
-                "insert into ltfs_index_info (creator,blocksize,volumeuuid,formattime,generationnumber,updatetime,location_partition,location_startblock,prelocation_partition,prelocation_startblock,highestfileuid,current_height)
-                 values (@creator,@blocksize,@volumeuuid,@formattime,@generationnumber,@updatetime,@location_partition,@location_startblock,@prelocation_partition,@prelocation_startblock,@highestfileuid,@current_height)",
+                "insert into ltfs_index_info (creator,blocksize,volumeuuid,formattime,generationnumber,updatetime,location_partition,location_startblock,prelocation_partition,prelocation_startblock,highestfileuid,current_height,TotalBytesProcessed,CurrentBytesProcessed,TotalBytesUnindexed)
+                 values (@creator,@blocksize,@volumeuuid,@formattime,@generationnumber,@updatetime,@location_partition,@location_startblock,@prelocation_partition,@prelocation_startblock,@highestfileuid,@current_height,@TotalBytesProcessed,@CurrentBytesProcessed,@TotalBytesUnindexed)",
                 connection
                 )
             InsertCommand.Parameters.AddWithValue("@creator", plabel.creator)
@@ -133,6 +180,10 @@ Public Class DirProvider
             InsertCommand.Parameters.AddWithValue("@prelocation_startblock", schema.previousgenerationlocation.startblock)
             InsertCommand.Parameters.AddWithValue("@highestfileuid", schema.highestfileuid)
             InsertCommand.Parameters.AddWithValue("@current_height", currentHeight)
+            InsertCommand.Parameters.AddWithValue("@TotalBytesProcessed", 0)
+            InsertCommand.Parameters.AddWithValue("@CurrentBytesProcessed", 0)
+            InsertCommand.Parameters.AddWithValue("@TotalBytesUnindexed", 0)
+            
             LTFSWriter.FuncSqliteTrans(Sub()
                 Metric.FuncFileOperationDuration(Sub()
                     insertCommand.ExecuteNonQuery()
@@ -147,6 +198,7 @@ Public Class DirProvider
     Public Class LTFSIndexInfoDto
         Public LTFSIndex As ltfsindex
         Public CurrentHeight As Int64
+        Public TotalBytesUnindexed As Int64
     End Class
      
 
@@ -170,6 +222,7 @@ Public Class DirProvider
             ltfsindex.highestfileuid = reader("highestfileuid")
             ltfsIndexInfo.LTFSIndex=ltfsindex
             ltfsIndexInfo.CurrentHeight = reader("current_height")
+            ltfsIndexInfo.TotalBytesUnindexed = reader("TotalBytesUnindexed")
             Return ltfsindexInfo
         End If
         Return Nothing
@@ -190,6 +243,26 @@ Public Class DirProvider
             
         Else 
                 throw new Exception("ltfs_index_info table has no record")
+        End If
+    End Sub
+    
+    Public Shared Sub UpdateCurrentHeight(connection As SQLiteConnection, BarCode As String,currentHeight As Int64,totalBytesUnindexed As Int64)
+        Dim ltfsindexInfoDto = GetLTFSIndexInfo(connection, BarCode)
+        If ltfsindexInfoDto IsNot Nothing Then
+            if ltfsindexInfoDto.currentHeight >= currentHeight Then
+                throw new Exception($"currentHeight is less than current currentHeight,ltfsindexInfoDto.currentHeight:{ltfsindexInfoDto.currentHeight} ,currentHeight:{currentHeight}")
+            End If
+            Dim updateCommand As New SQLiteCommand("update ltfs_index_info set current_height=@current_height,TotalBytesUnindexed=@totalBytesUnindexed ",connection)
+            updateCommand.Parameters.AddWithValue("@current_height", currentHeight)
+            updateCommand.Parameters.AddWithValue("@totalBytesUnindexed", totalBytesUnindexed)
+            LTFSWriter.FuncSqliteTrans(Sub()
+                Metric.FuncFileOperationDuration(Sub()
+                    updateCommand.ExecuteNonQuery()
+                End Sub, {"", "Sqlite_Update_current_height_and_totalBytesUnindexed", ""})
+            End Sub,BarCode)
+            
+        Else 
+            throw new Exception("ltfs_index_info table has no record")
         End If
     End Sub
     Public Shared Sub UpdateCurrentHeight(connection As SQLiteConnection, BarCode As String,currentHeight As Int64)
@@ -646,25 +719,21 @@ Public Class DirProvider
 
 
     Public Shared Sub ImportSchemaToSqlite(LW As LTFSWriter)
-        Dim conn As SQLiteConnection
+
         Dim tr As DbTransaction
         Try
-            If Not IO.Directory.Exists(IO.Path.Combine(Application.StartupPath, "sqlite")) Then
-                IO.Directory.CreateDirectory(IO.Path.Combine(Application.StartupPath, "sqlite"))
-            End If
-            conn = DirProvider.CreateConnection($"sqlite\{LW.Barcode}.db")
-            conn.Open()
-            DirProvider.CreateDatabaseAndTable(conn)
 
+            Dim conn = LW.GetSqliteConnection(LW.Barcode)
+            DirProvider.CreateDatabaseAndTable(conn)
 
             tr = conn.BeginTransaction()
             Dim IterDir As Action(Of ltfsindex.directory, String, SQLiteConnection) =
                     Sub(tapeDir As ltfsindex.directory, outputDir As String, connection As SQLiteConnection)
                         For Each f As ltfsindex.file In tapeDir.contents._file
                             Try
-                                InsertFile(f, outputDir, connection,LW.Barcode)
+                                InsertFile(f, outputDir, connection, LW.Barcode)
                             Catch ex As Exception
-                                LW.PrintMsg($"InsertFile出错：{ex.ToString} {ex.StackTrace}", ForceLog := True)
+                                LW.PrintMsg($"InsertFile出错：{ex.ToString} {ex.StackTrace}", ForceLog:=True)
                             End Try
                             If _
                     Not f.GetXAttr("ltfscopygui.archive") Is Nothing AndAlso
@@ -682,17 +751,17 @@ Public Class DirProvider
                                     End If
                                     Dim dindex As ltfsindex.directory = ltfsindex.directory.FromFile(tmpf)
                                     Dim dirOutput As String = outputDir & "\" & dindex.name
-                                    InsertDir(dindex, outputDir, connection,LW.Barcode)
+                                    InsertDir(dindex, outputDir, connection, LW.Barcode)
                                     IterDir(dindex, dirOutput, connection)
                                 Catch ex As Exception
-                                    LW.PrintMsg($"解压索引出错：{ex.ToString} {ex.StackTrace}", ForceLog := True)
+                                    LW.PrintMsg($"解压索引出错：{ex.ToString} {ex.StackTrace}", ForceLog:=True)
                                 End Try
                             End If
                             'RestoreFile(IO.Path.Combine(outputDir.FullName, f.name), f)
                         Next
                         For Each d As ltfsindex.directory In tapeDir.contents._directory
                             Dim dirOutput As String = outputDir & "\" & d.name
-                            InsertDir(d, outputDir, connection,LW.Barcode)
+                            InsertDir(d, outputDir, connection, LW.Barcode)
                             IterDir(d, dirOutput, connection)
                         Next
                     End Sub
@@ -705,10 +774,6 @@ Public Class DirProvider
                 tr.Rollback()
             End If
             LW.PrintMsg($"ImportSchemaToSqlite failed: {ex.Message}")
-            If Not conn Is Nothing Then
-                conn.Close()
-            End If
-
         End Try
     End Sub
 
