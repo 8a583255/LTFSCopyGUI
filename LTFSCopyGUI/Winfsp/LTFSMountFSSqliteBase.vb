@@ -788,6 +788,7 @@ Public Class LTFSMountFSSqliteBase
                     ' 执行refresh方法
                     count += 1
                 Else
+                    Threading.Thread.Sleep(100)
                     ' 检查是否超过1秒
                     Dim elapsedTime As TimeSpan = DateTime.Now - startTime
                     If elapsedTime.TotalSeconds >= 5 Then
@@ -850,11 +851,13 @@ Public Class LTFSMountFSSqliteBase
                        TapeUtils.Locate(TapeDrive, LW.CurrentHeight, LW.DataPartition)
                     End Sub,  {"", "TapeUtils_Write_Locate", ""})
                     p.BlockNumber = LW.CurrentHeight
-                    End
-
                 End If
                 If offset > FileDesc.LTFSFile.WriteedOffset + FileDesc.LTFSFile.length Then
                     LW.PrintMsg($"winfsp Write 错误,只支持单线程顺序写入, {fileDesc_FileName}:offset{offset} length:{length}  WriteedOffset:{FileDesc.LTFSFile.WriteedOffset} FileDesc.LTFSFile.Length:{FileDesc.LTFSFile.length} ", ForceLog:=True, Warning:=True)
+                    Return STATUS_FT_WRITE_FAILURE
+                End If
+                If not offset = FileDesc.LTFSFile.length Then
+                    LW.PrintMsg($"winfsp Write 和文件位置不匹配, {fileDesc_FileName}:offset{offset} length:{length}  WriteedOffset:{FileDesc.LTFSFile.WriteedOffset} FileDesc.LTFSFile.Length:{FileDesc.LTFSFile.length} ", ForceLog:=True, Warning:=True)
                     Return STATUS_FT_WRITE_FAILURE
                 End If
                 'todo : 不是create操作的write，返回失败，暂不支持
@@ -1136,7 +1139,11 @@ Public Class LTFSMountFSSqliteBase
                 fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.MD5, fileDesc.Sh.MD5Value)
                 fileDesc.Sh.StopFlag = True
                 DirProvider.InsertFile(fileDesc.LTFSFile, Path.GetDirectoryName(fileDesc.LTFSFile.fullpath), LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
-
+            else if fileDesc.LTFSFile.length = 0 Then
+                Metric.OperationCounter.WithLabels("hashfile_finish").Inc()
+                fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.SHA1, "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709")
+                fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.MD5, "D41D8CD98F00B204E9800998ECF8427E")
+                DirProvider.InsertFile(fileDesc.LTFSFile, Path.GetDirectoryName(fileDesc.LTFSFile.fullpath), LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
             End If
             WriteFileQueue.Enqueue(fileDesc)
             If LW.CheckUnindexedDataSizeLimit() Then LW.WinFspPositionData = New TapeUtils.PositionData(TapeDrive)

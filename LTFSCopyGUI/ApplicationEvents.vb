@@ -6,6 +6,32 @@ Imports CsvHelper
 Imports System.Globalization
 Imports SchwabenCode.QuickIO
 Imports System.Windows.Forms
+
+Imports System.Runtime.InteropServices
+Imports Microsoft.Win32.SafeHandles
+
+Public Class WinApiFileHelper
+    Public Const FILE_ATTRIBUTE_NORMAL As Short = &H80
+    Public Const INVALID_HANDLE_VALUE As Short = -1
+    Public Const GENERIC_READ As UInteger = &H80000000UI
+    Public Const GENERIC_WRITE As UInteger = &H40000000UI
+    Public Const CREATE_NEW As UInteger = 1
+    Public Const CREATE_ALWAYS As UInteger = 2
+    Public Const OPEN_EXISTING As UInteger = 3
+    Public Const FILE_FLAG_NO_BUFFERING As UInteger = &H20000000UI  
+    Public Const FILE_FLAG_SEQUENTIAL_SCAN As UInteger = &H08000000UI
+    Public Const FILE_FLAG_WRITE_THROUGH As UInteger = &H80000000UI
+    Public Const FILE_SHARE_READ As UInteger = &H1
+    Public Const FILE_SHARE_WRITE As UInteger = &H2
+
+    <DllImport("kernel32.dll", SetLastError:=True)>
+    public Shared Function CreateFile(lpFileName As String, dwDesiredAccess As UInteger,
+                                       dwShareMode As UInteger, lpSecurityAttributes As IntPtr,
+                                       dwCreationDisposition As UInteger,
+                                       dwFlagsAndAttributes As UInteger,
+                                       hTemplateFile As IntPtr) As SafeFileHandle
+    End Function
+End Class
 Namespace My
     ' 以下事件可用于 MyApplication: 
     ' Startup:应用程序启动时在创建启动窗体之前引发。
@@ -119,51 +145,63 @@ Namespace My
                 Dim filePath = dt.Rows(i)("Filename")
                 Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} open file " & i & " " & filePath)
                 '                Dim fs = New IO.FileStream(filePath, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read, BufferSize, False)
-                Dim fs = QuickIOFile.OpenRead("\\?\" + filePath)
-                Do
-                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} read file " & i & " " & filePath)
-                    bytesRead = fs.Read(PreReadBuffer, 0, BufferSize)
-                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} readed file " & i & " " & filePath)
-                    Metric.OperationCounter.WithLabels(("read_file")).Inc(bytesRead)
-                    Exit Do
-                    ' 处理读取到的数据
-                    If bytesRead > 0 Then
-                        Dim succ As Boolean
-                        Dim offset As Integer = 0 ' 数据偏移量
-                        Dim plabelblocksize = 524288
-                        Dim buffer(plabelblocksize - 1) As Byte
-                        While offset < bytesRead ' 只处理实际读取的字节数
+'                Dim fs = QuickIOFile.OpenRead("\\?\" + filePath)
+'                
+                Dim handle As SafeFileHandle = WinApiFileHelper.CreateFile(
+                    filePath,
+                    WinApiFileHelper.GENERIC_READ,
+                    0,
+                    IntPtr.Zero,
+                    WinApiFileHelper.OPEN_EXISTING,
+                    WinApiFileHelper.FILE_ATTRIBUTE_NORMAL Or WinApiFileHelper.FILE_FLAG_NO_BUFFERING Or WinApiFileHelper.FILE_FLAG_SEQUENTIAL_SCAN,
+                    IntPtr.Zero
+                    )
 
-                            ' 将 PreReadBuffer 中的数据复制到 buffer 中
-                            Array.Copy(PreReadBuffer, offset, buffer, 0, Math.Min(plabelblocksize, bytesRead - offset))
-
-                            sense = TapeUtils.Write(tapedrive, buffer, Math.Min(plabelblocksize, bytesRead - offset))
-                            Metric.OperationCounter.WithLabels(("write_file")).Inc(plabelblocksize)
-                            If ((sense(2) >> 6) And &H1) = 1 Then
-                                If (sense(2) And &HF) = 13 Then
-                                    '磁带已满                                           
-                                    Console.WriteLine("磁带已满")
-                                Else
-                                    '磁带即将写满
-                                    Console.WriteLine("磁带即将写满")
-                                End If
-                            ElseIf sense(2) And &HF <> 0 Then
-                                '写入出错
-                                Console.WriteLine("写入出错")
-                            Else
-                                succ = True
-                            End If
-                            offset += plabelblocksize ' 更新偏移量
-                        End While
-                    End If
-
-                Loop While bytesRead > 0
-
-                ' 关闭文件流
-                fs.Close()
-                Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} close file " & i & " " & filePath)
-
-
+                 
+'                Do
+'                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} read file " & i & " " & filePath)
+'                    bytesRead = fs.Read(PreReadBuffer, 0, BufferSize)
+'                    Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} readed file " & i & " " & filePath)
+'                    Metric.OperationCounter.WithLabels(("read_file")).Inc(bytesRead)
+'                    Exit Do
+'                    ' 处理读取到的数据
+'                    If bytesRead > 0 Then
+'                        Dim succ As Boolean
+'                        Dim offset As Integer = 0 ' 数据偏移量
+'                        Dim plabelblocksize = 524288
+'                        Dim buffer(plabelblocksize - 1) As Byte
+'                        While offset < bytesRead ' 只处理实际读取的字节数
+'
+'                            ' 将 PreReadBuffer 中的数据复制到 buffer 中
+'                            Array.Copy(PreReadBuffer, offset, buffer, 0, Math.Min(plabelblocksize, bytesRead - offset))
+'
+'                            sense = TapeUtils.Write(tapedrive, buffer, Math.Min(plabelblocksize, bytesRead - offset))
+'                            Metric.OperationCounter.WithLabels(("write_file")).Inc(plabelblocksize)
+'                            If ((sense(2) >> 6) And &H1) = 1 Then
+'                                If (sense(2) And &HF) = 13 Then
+'                                    '磁带已满                                           
+'                                    Console.WriteLine("磁带已满")
+'                                Else
+'                                    '磁带即将写满
+'                                    Console.WriteLine("磁带即将写满")
+'                                End If
+'                            ElseIf sense(2) And &HF <> 0 Then
+'                                '写入出错
+'                                Console.WriteLine("写入出错")
+'                            Else
+'                                succ = True
+'                            End If
+'                            offset += plabelblocksize ' 更新偏移量
+'                        End While
+'                    End If
+'
+'                Loop While bytesRead > 0
+'
+'                ' 关闭文件流
+'                fs.Close()
+'                Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} close file " & i & " " & filePath)
+'
+'
             Next
 
 
@@ -289,9 +327,9 @@ Namespace My
                                 MessageBox.Show(ex.Message)
                             End Try
                             StackTraceAnalysis.StartServer()
-                            '                            ReadFileSpeed("M:\\parlorpcbakdpan\\VHD\\PARLOR-PC.VHD")
+'                            ReadFileSpeed("M:\\parlorpcbakdpan\\VHD\\PARLOR-PC.VHD")
                             '                            WriteTapeFileSpeed("M:\\parlorpcbakdpan\\VHD\\PARLOR-PC.VHD","\\.\TAPE0")
-                            WriteTapeFileWithEfuSpeed("W:\\临时Vhd\\M盘小文件读取测试.efu", "\\.\TAPE0")
+                           WriteTapeFileWithEfuSpeed("W:\\临时Vhd\\M盘小文件读取测试.efu", "\\.\TAPE0")
 '                             MountTape("\\.\TAPE0")
                         Case "-t"
                             CheckUAC(e)

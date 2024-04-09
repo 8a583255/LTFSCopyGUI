@@ -216,6 +216,7 @@ Public Class LTFSWriter
                     ' 执行refresh方法
                     count += 1
                 Else
+                    Threading.Thread.Sleep(100)
                     ' 检查是否超过1秒
                     Dim elapsedTime As TimeSpan = DateTime.Now - startTime
                     If elapsedTime.TotalSeconds >= 30 Then
@@ -3440,9 +3441,15 @@ Public Class LTFSWriter
                         Dim countFile = IO.File.ReadAllText(plabelCountfile)
                         plabelCount = Convert.ToInt32(countFile)
                     End If
-                    DirProvider.CreateDatabaseAndTable(GetSqliteConnection(Barcode))
-                    Dim ltfsIndexInfoDto = DirProvider.GetLTFSIndexInfo(GetSqliteConnection(Barcode), Barcode)
+       
+                    Dim ltfsIndexInfoDto As DirProvider.LTFSIndexInfoDto = Nothing
+                    If Not IO.Directory.Exists(IO.Path.Combine(Application.StartupPath, "sqlite")) Then
+                        IO.Directory.CreateDirectory(IO.Path.Combine(Application.StartupPath, "sqlite"))
+                    End If
+                    If IO.File.Exists(IO.Path.Combine(Application.StartupPath, "sqlite", $"{Barcode}.db")) Then
+                        ltfsIndexInfoDto = DirProvider.GetLTFSIndexInfo(GetSqliteConnection(Barcode), Barcode)
                     '                    If ltfsIndexInfoDto Is Nothing Then
+                    End If
                     If True Then
                         If (IO.File.Exists(plabelfile) And TapeStatus.ThreadCount <= plabelCount) And Not Barcode Is Nothing Then
                             pltext = IO.File.ReadAllText(plabelfile)
@@ -3546,7 +3553,33 @@ Public Class LTFSWriter
                         End If
                         outputfile = IO.Path.Combine(Application.StartupPath, outputfile)
                         IO.File.Move(tmpf, outputfile)
-                        DirProvider.InitializeLTFSIndexInfo(GetSqliteConnection(Barcode), plabel, schema, CurrentHeight, Barcode)
+                        Dim sqlitePathFromTape =""
+                        Dim files = schema._directory(0).contents._file.ToList()
+                        Dim restoreSqliteFile As ltfsindex.file=Nothing
+                        For Each sqlitefile In files
+                            If sqlitefile.name = "sqlite.ltfscopygui.sqlarchive" Then
+                                For Each extendedattribute In sqlitefile.extendedattributes
+                                    If extendedattribute.key = "ltfscopygui.sqlarchive" Then
+                                        restoreSqliteFile=sqlitefile
+                                    End If
+                                Next
+                            End If
+                        Next
+                        if restoreSqliteFile is Nothing Then
+                            DirProvider.CreateDatabaseAndTable(GetSqliteConnection(Barcode))
+                            DirProvider.InitializeLTFSIndexInfo(GetSqliteConnection(Barcode), plabel, schema, CurrentHeight, Barcode)
+                        else
+                            Dim sqlitePath As String = $"{Application.StartupPath}\sqlite\{Barcode}.db"
+                            If Not IO.File.Exists(sqlitePath) Then
+                                RestorePosition = New TapeUtils.PositionData(TapeDrive)
+                                RestoreFile(sqlitePath,restoreSqliteFile)
+                                DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode,currentHeight,0)
+                                DirProvider.UpdateHightestFileUid(GetSqliteConnection(Barcode), Barcode,schema.highestfileuid)
+                                ltfsIndexInfoDto = DirProvider.GetLTFSIndexInfo(GetSqliteConnection(Barcode), Barcode)
+                            End If
+                        end if
+                        
+                        
                         While True
                             Threading.Thread.Sleep(0)
                             SyncLock UFReadCount
@@ -3558,6 +3591,8 @@ Public Class LTFSWriter
                                     CurrentHeight = ltfsIndexInfoDto.CurrentHeight
                                     TotalBytesUnindexed = ltfsIndexInfoDto.TotalBytesUnindexed
                                     schema.highestfileuid = ltfsIndexInfoDto.LTFSIndex.highestfileuid
+                                Else
+                                    TotalBytesUnindexed = 0
                                 End If
                                 Exit While
                             End SyncLock
@@ -3824,12 +3859,42 @@ Public Class LTFSWriter
             If IO.File.Exists(plabelCountfile) Then
                 IO.File.Delete(plabelCountfile)
             End If
+            SyncLock SqliteLock
+                If privateSqliteTrDic.ContainsKey(Barcode) Then
+                    Dim tr = privateSqliteTrDic(Barcode)
+                    tr.Commit()
+                    privateSqliteTrDic.TryRemove(Barcode, tr)
+                End If
 
-            Dim sqliteFile As String = $"sqlite\{Barcode}" & ".db"
-            If IO.File.Exists(sqliteFile) Then
-                '重命名
-                IO.File.Move(sqliteFile, $"sqlite\{Barcode}.{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.db.bak")
-            End If
+                If privateSqliteDic.ContainsKey(Barcode) Then
+                    Dim Conn = privateSqliteDic(Barcode)
+                    Conn.Close()
+                    privateSqliteDic.TryRemove(Barcode, Conn)
+                End If
+            End SyncLock
+            Dim sqliteFile As String = $"sqlite\{Barcode}.db"
+            While True
+                If IO.File.Exists(sqliteFile) Then
+
+                    Try
+                        IO.File.Move(sqliteFile, $"sqlite\{Barcode}.{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.db.bak")
+                    Catch ex As Exception
+                        PrintMsg(ex.Message + vbCrLf + ex.StackTrace, LogOnly:=True, Warning:=True)
+
+                        Select Case MessageBox.Show($"移动sqlite文件异常:{ex.Message}", My.Resources.ResText_Warning, MessageBoxButtons.AbortRetryIgnore)
+                            Case DialogResult.Abort
+                                Throw ex
+                            Case DialogResult.Retry
+                            Case DialogResult.Ignore
+                                Exit While
+                        End Select
+                    End Try
+
+                    '重命名
+                Else
+                    Exit While
+                End If
+            End While
             Dim MaxExtraPartitionAllowed As Byte = TapeUtils.ModeSense(TapeDrive, &H11)(2)
             If MaxExtraPartitionAllowed > 1 Then MaxExtraPartitionAllowed = 1
             '强制根据配置分区
@@ -4738,7 +4803,7 @@ Public Class LTFSWriter
             Dim Host As New Fsp.FileSystemHost(proxyInstance)
             Host.Prefix = $"\ltfs\{MountPath}"
             Host.FileSystemName = "LTFS"
-            Dim Code As Integer = Host.Mount("L:", Nothing, True, 0)
+            Dim Code As Integer = Host.Mount("Y:", Nothing, True, 0)
             _Host = Host
             'MessageBox.Show($"Code {Code} Name={Host.FileSystemName} MP={Host.MountPoint} Pf={Host.Prefix}")
         End Sub

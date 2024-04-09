@@ -846,6 +846,7 @@ Public Class LTFSMountFSBase
                     ' 执行refresh方法
                     count += 1
                 Else
+                    Threading.Thread.Sleep(100)
                     ' 检查是否超过1秒
                     Dim elapsedTime As TimeSpan = DateTime.Now - startTime
                     If elapsedTime.TotalSeconds >= 5 Then

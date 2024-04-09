@@ -466,57 +466,52 @@ Public Class DirProvider
 
         Dim fc As Long = 0, ec As Long = 0
         LW.PrintMsg(My.Resources.ResText_Hashing)
-        Dim conn As SQLiteConnection
 
         Try
             LW.StopFlag = False
-            conn = DirProvider.CreateConnection($"sqlite\{LW.Barcode}.db")
-            conn.Open()
+            Dim conn = LW.GetSqliteConnection(LW.Barcode)
+
             Dim c As Integer = 0
-            Dim dir = DirProvider.QueryFileWithWhere($"fileuid={selectedDir.fileuid}", conn)
-            DirProvider.QueryFilesSha1AndMd5(LW, $"{dir(0).fullpath}%", conn, Sub(f As ltfsindex.file, count As Integer)
+            'Dim dir = DirProvider.QueryFileWithWhere($"fileuid={selectedDir.fileuid}", conn)
+            DirProvider.QueryFilesSha1AndMd5(LW, $"{selectedDir.fullpath}%", conn, Sub(f As ltfsindex.file, count As Integer)
 
-                'LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
-                c += 1
-                Metric.OperationCounter.WithLabels("HashSelectedDirWithSqlite").Inc()
-                LW.PrintMsg(
-                    $"{My.Resources.ResText_Hashing} [{c}/{count}] {Path.GetFileName(f.fullpath)} { _
-                               My.Resources.ResText_Size}:{IOManager.FormatSize(f.length)}", False,
-                    $"{My.Resources.ResText_Hashing} [{c}/{count}] {f.fullpath} { _
-                               My.Resources.ResText_Size}:{f.length}")
+                                                                                       'LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
+                                                                                       c += 1
+                                                                                       Metric.OperationCounter.WithLabels("HashSelectedDirWithSqlite").Inc()
+                                                                                       LW.PrintMsg($"{My.Resources.ResText_Hashing} [{c}/{count}] {Path.GetFileName(f.fullpath)} {My.Resources.ResText_Size}:{IOManager.FormatSize(f.length)}", False,
+                    $"{My.Resources.ResText_Hashing} [{c}/{count}] {f.fullpath} { My.Resources.ResText_Size}:{f.length}")
 
-                If LW.StopFlag Then
-                    Throw New Exception("Stop")
-                End If
-                If _
-                                                (f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) = "") AndAlso
+                                                                                       If LW.StopFlag Then
+                                                                                           Throw New Exception("Stop")
+                                                                                       End If
+                                                                                       If (f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) = "") AndAlso
                                                 (f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) = "") Then
-                    'skip
-                    Threading.Interlocked.Add(LW.CurrentBytesProcessed, f.length)
-                    Threading.Interlocked.Increment(LW.CurrentFilesProcessed)
-                    Metric.OperationCounter.WithLabels("HashSelectedDirWithSqlite_skip").Inc()
-                Else
-                    Dim result As Dictionary(Of String, String) = LW.CalculateChecksum(f)
-                    If result IsNot Nothing Then
-                        If f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) = result.Item("SHA1") _
+                                                                                           'skip
+                                                                                           Threading.Interlocked.Add(LW.CurrentBytesProcessed, f.length)
+                                                                                           Threading.Interlocked.Increment(LW.CurrentFilesProcessed)
+                                                                                           Metric.OperationCounter.WithLabels("HashSelectedDirWithSqlite_skip").Inc()
+                                                                                       Else
+                                                                                           Dim result As Dictionary(Of String, String) = LW.CalculateChecksum(f)
+                                                                                           If result IsNot Nothing Then
+                                                                                               If f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) = result.Item("SHA1") _
                                                 Then
 
-                        ElseIf f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) <> "" Then
+                                                                                               ElseIf f.GetXAttr(ltfsindex.file.xattr.HashType.SHA1, True) <> "" Then
 
-                            LW.PrintMsg(
-                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath} sha1logged={f.sha1} sha1calc={result.Item("SHA1")} size=｛f.length｝", ForceLog := True, Warning := True)
-                            Threading.Interlocked.Increment(ec)
-                        End If
-                        If f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) = result.Item("MD5") _
+                                                                                                   LW.PrintMsg(
+                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath} sha1logged={f.sha1} sha1calc={result.Item("SHA1")} size=｛f.length｝", ForceLog:=True, Warning:=True)
+                                                                                                   Threading.Interlocked.Increment(ec)
+                                                                                               End If
+                                                                                               If f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) = result.Item("MD5") _
                                                 Then
-                        ElseIf f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) <> "" Then
-                            LW.PrintMsg(
-                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath} sha1logged={f.sha1} sha1calc={result.Item("SHA1")} size=｛f.length｝", ForceLog := True, Warning := True)
-                            Threading.Interlocked.Increment(ec)
-                        End If
-                    End If
-                End If
-            End Sub)
+                                                                                               ElseIf f.GetXAttr(ltfsindex.file.xattr.HashType.MD5, True) <> "" Then
+                                                                                                   LW.PrintMsg(
+                                $"SHA1 Mismatch at fileuid={f.fileuid} filename={f.fullpath} sha1logged={f.sha1} sha1calc={result.Item("SHA1")} size=｛f.length｝", ForceLog:=True, Warning:=True)
+                                                                                                   Threading.Interlocked.Increment(ec)
+                                                                                               End If
+                                                                                           End If
+                                                                                       End If
+                                                                                   End Sub)
 
         Catch ex As Exception
             LW.Invoke(Sub() MessageBox.Show(ex.ToString))
