@@ -210,7 +210,8 @@ Public Class LTFSMountFSSqliteBase
             Return STATUS_SUCCESS
         End If
         Dim FileExist As Boolean = False
-        Dim LTFSDirOrFile = DirProvider.QueryFileWithWhere($"fullpath='{FileName}'", LW.GetSqliteConnection(LW.Barcode))
+        Dim fileNameParam=FileName.Replace("'","''")
+        Dim LTFSDirOrFile = DirProvider.QueryFileWithWhere($"fullpath='{fileNameParam}'", LW.GetSqliteConnection(LW.Barcode))
         If LTFSDirOrFile.Count=0 Then
             FileExist = False
         else
@@ -269,7 +270,8 @@ Public Class LTFSMountFSSqliteBase
                 fileDesc.GetFileInfo(FileInfo)
                 Return STATUS_SUCCESS
             End If
-            Dim LTFSDirOrFile = DirProvider.QueryFileWithWhere($"fullpath='{FileName}'", LW.GetSqliteConnection(LW.Barcode))
+            Dim fileNameParam=FileName.Replace("'","''")
+            Dim LTFSDirOrFile = DirProvider.QueryFileWithWhere($"fullpath='{fileNameParam}'", LW.GetSqliteConnection(LW.Barcode))
             If LTFSDirOrFile.Count=0 Then
                 FileExist = False
             else
@@ -419,10 +421,13 @@ Public Class LTFSMountFSSqliteBase
             '                lst.Add("..", FileDesc.Parent)
             '            End If
             Dim fileAndDir As SortedList
+            
             If Pattern = "*" OrElse Pattern = "" Then
-                fileAndDir = DirProvider.ReadDirWithWhere($"ParentPath= '{FileDesc.LTFSDirectory.fullpath}'", LW.GetSqliteConnection(LW.Barcode))
+                Dim fileNameParam=FileDesc.LTFSDirectory.fullpath.Replace("'","''")
+                fileAndDir = DirProvider.ReadDirWithWhere($"ParentPath= '{fileNameParam}'", LW.GetSqliteConnection(LW.Barcode))
             Else
-                fileAndDir = DirProvider.ReadDirWithWhere($"FullPath= '{FileDesc.LTFSDirectory.fullpath}\{Pattern}'", LW.GetSqliteConnection(LW.Barcode))
+                Dim fileNameParam=$"{FileDesc.LTFSDirectory.fullpath}\{Pattern}".Replace("'","''")
+                fileAndDir = DirProvider.ReadDirWithWhere($"FullPath= '{fileNameParam}'", LW.GetSqliteConnection(LW.Barcode))
             End If
             ReDim FileDesc.FileSystemInfos(fileAndDir.Count - 1)
             fileAndDir.CopyTo(FileDesc.FileSystemInfos, 0)
@@ -856,7 +861,7 @@ Public Class LTFSMountFSSqliteBase
                     LW.PrintMsg($"winfsp Write 错误,只支持单线程顺序写入, {fileDesc_FileName}:offset{offset} length:{length}  WriteedOffset:{FileDesc.LTFSFile.WriteedOffset} FileDesc.LTFSFile.Length:{FileDesc.LTFSFile.length} ", ForceLog:=True, Warning:=True)
                     Return STATUS_FT_WRITE_FAILURE
                 End If
-                If not offset = FileDesc.LTFSFile.length Then
+                If not offset = FileDesc.LTFSFile.WriteedOffset Then
                     LW.PrintMsg($"winfsp Write 和文件位置不匹配, {fileDesc_FileName}:offset{offset} length:{length}  WriteedOffset:{FileDesc.LTFSFile.WriteedOffset} FileDesc.LTFSFile.Length:{FileDesc.LTFSFile.length} ", ForceLog:=True, Warning:=True)
                     Return STATUS_FT_WRITE_FAILURE
                 End If
@@ -1031,7 +1036,7 @@ Public Class LTFSMountFSSqliteBase
         End If
 
         DirProvider.DeleteFile(fileDesc.LTFSFile, LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
-        Dim fileRecord = New LTFSWriter.FileRecord(fileDesc.LTFSFile.name, 0, "", Nothing)
+        Dim fileRecord = New LTFSWriter.FileRecord(fileDesc.LTFSFile.name, 0, fileDesc.LTFSFile.fullpath, Nothing)
         '                fileDesc = New FileDescriptor(fileName, path, New MemoryStream(), True)
         '                fileDesc.SetFileAttributes(fileAttributes Or CUInt(System.IO.FileAttributes.Archive))
 

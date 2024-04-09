@@ -1382,7 +1382,8 @@ Public Class LTFSWriter
                         Dim files = d.contents._file
                         If IsSqliteTreeView Then
                             If IsSqliteTreeView Then
-                                files = DirProvider.QueryFileWithWhere($"ParentPath='{d.fullpath}' and isdirectory=0", GetSqliteConnection(Barcode))
+                                Dim fileNameParam=d.fullpath.Replace("'","''")
+                                files = DirProvider.QueryFileWithWhere($"ParentPath='{fileNameParam}' and isdirectory=0", GetSqliteConnection(Barcode))
                             End If
                         End If
                         For Each f As ltfsindex.file In files
@@ -1498,7 +1499,8 @@ Public Class LTFSWriter
                     If IsSqliteTreeView Then
                         Dim dirTreeNodes As List(Of TreeNode)
                         If Not d.Loaded Then
-                            Dim dirs = DirProvider.QueryDirListWithWhere($"ParentPath='{d.fullpath}' and  isdirectory=1", GetSqliteConnection(Barcode))
+                        Dim fileNameParam=d.fullpath.Replace("'","''")
+                            Dim dirs = DirProvider.QueryDirListWithWhere($"ParentPath='{fileNameParam}' and  isdirectory=1", GetSqliteConnection(Barcode))
                             TreeView1.SelectedNode.Nodes.Clear()
                             For Each dd In dirs
                                 Dim t As New TreeNode(dd.name)
@@ -1514,7 +1516,8 @@ Public Class LTFSWriter
                             Dim dd As ltfsindex.directory = tt.Tag
                             Dim childdirs As List(Of ltfsindex.directory)
                             If Not dd.Loaded Then
-                                childdirs = DirProvider.QueryDirListWithWhere($"ParentPath='{dd.fullpath}' and  isdirectory=1", GetSqliteConnection(Barcode))
+                                Dim fileNameParam=dd.fullpath.Replace("'","''")
+                                childdirs = DirProvider.QueryDirListWithWhere($"ParentPath='{fileNameParam}' and  isdirectory=1", GetSqliteConnection(Barcode))
                                 tt.Nodes.Clear()
                                 For Each childdir In childdirs
                                     Dim ttt As New TreeNode(childdir.name)

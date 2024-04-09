@@ -671,7 +671,8 @@ Public Class DirProvider
     End Function
 
     Public Shared Function QueryFile(Path As String, connection As SQLiteConnection) As ltfsindex.file
-        Dim files = QueryFileWithWhere($"FullPath='{Path}' and isdirectory=0", connection)
+        Dim fileNameParam=Path.Replace("'","''")
+        Dim files = QueryFileWithWhere($"FullPath='{fileNameParam}' and isdirectory=0", connection)
         if files.Count = 0 Then
             Return Nothing
         End If
@@ -703,8 +704,8 @@ Public Class DirProvider
         Return newdir
     End Function
     Public Shared Function QueryDir(Path As String, connection As SQLiteConnection) As ltfsindex.directory
-
-        Dim files = QueryFileWithWhere($"FullPath='{Path}' and isdirectory=1", connection)
+        Dim fileNameParam=Path.Replace("'","''")
+        Dim files = QueryFileWithWhere($"FullPath='{fileNameParam}' and isdirectory=1", connection)
         if files.Count = 0 Then
             Return Nothing
         End If
@@ -773,9 +774,10 @@ Public Class DirProvider
     End Sub
 
     Public Shared Sub UpdateFileSize(ltfsfile As ltfsindex.file, connection As SQLiteConnection, BarCode As String)
+        Dim fileNameParam=ltfsfile.fullpath.Replace("'","''")
         Dim queryCommand As New SQLiteCommand(
             $"update ltfs_index set length='{ltfsfile.length}'
-            WHERE FullPath='{ltfsfile.fullpath}'",
+            WHERE FullPath='{fileNameParam}'",
             connection
             )
         LTFSWriter.FuncSqliteTrans(Sub()
@@ -786,6 +788,7 @@ Public Class DirProvider
     End Sub
 
     Public Shared Sub UpdateBaseInfo(ltfsfile As ltfsindex.file, connection As SQLiteConnection, BarCode As String)
+        Dim fileNameParam=ltfsfile.fullpath.Replace("'","''")
         Dim queryCommand As New SQLiteCommand(
             $"update ltfs_index set creationtime='{ltfsfile.creationtime}', 
             modifytime='{ _
@@ -794,7 +797,7 @@ Public Class DirProvider
                                                  }',
              changetime='{ltfsfile.changetime _
                                                  }'
-             WHERE FullPath='{ltfsfile.fullpath}'",
+             WHERE FullPath='{fileNameParam}'",
             connection
             )
         LTFSWriter.FuncSqliteTrans(Sub()
@@ -805,7 +808,8 @@ Public Class DirProvider
     End Sub
     Public Shared Sub DeleteDir(Path As String, connection As SQLiteConnection, BarCode As String)
         Dim IterDeleteDir As Action(Of String) = Sub(ChildPath As String)
-                                                     Dim dirs = QueryDirListWithWhere($"ParentPath='{ChildPath}' and isdirectory=1", connection)
+        Dim childPathParam=ChildPath.Replace("'","''")
+                                                     Dim dirs = QueryDirListWithWhere($"ParentPath='{childPathParam}' and isdirectory=1", connection)
                                                      For Each dir As ltfsindex.directory In dirs
                                                          IterDeleteDir(dir.fullpath)
 '                                                         Dim sql=$"delete from ltfs_index WHERE ParentPath='{dir.fullpath}' "
@@ -818,7 +822,8 @@ Public Class DirProvider
 '                                                                                                                         End Sub, {"", "Sqlite_DeleteDir", ""})
 '                                                                                    End Sub, BarCode)
                                                      Next
-                                                     Dim sql2=$"delete from ltfs_index WHERE  FullPath='{ChildPath}' or ParentPath='{ChildPath}'"
+                                                     
+                                                     Dim sql2=$"delete from ltfs_index WHERE  FullPath='{childPathParam}' or ParentPath='{childPathParam}'"
                                                      Console.WriteLine(sql2)
                                                      Dim queryCommand2 As New SQLiteCommand(sql2, connection)
                                                      LTFSWriter.FuncSqliteTrans(Sub()
@@ -830,9 +835,10 @@ Public Class DirProvider
         IterDeleteDir(Path)
     End Sub
     Public Shared Sub DeleteFile(ltfsFile As ltfsindex.file, connection As SQLiteConnection, BarCode As String)
+        Dim fileNameParam=ltfsFile.fullpath.Replace("'","''")
         Dim queryCommand As New SQLiteCommand(
             $"delete from ltfs_index 
-        WHERE FullPath='{ltfsFile.fullpath}'",
+        WHERE FullPath='{fileNameParam}'",
             connection
             )
         LTFSWriter.FuncSqliteTrans(Sub()
