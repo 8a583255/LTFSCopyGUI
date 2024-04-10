@@ -1182,7 +1182,7 @@ Public Class LTFSWriter
                     Dim root As New TreeNode
                     root.Text = $"{Barcode}(sqlite模式)"
                     root.Tag = New ltfsindex.directory With {.name = Barcode, .readonly = False,
-                  .creationtime = plabel.formattime, .changetime = .creationtime,
+                  .creationtime = plabel.formattime, .changetime = .creationtime,.fullpath="",
                   .accesstime = .creationtime, .modifytime = .creationtime, .backuptime = .creationtime, .fileuid = 1, .contents = New ltfsindex.contentsDef()}
                     root.ImageIndex = 0
                     TreeView1.Nodes.Add(root)
@@ -5063,7 +5063,7 @@ Public Class LTFSWriter
         RefreshDisplay()
         RefreshCapacity()
         LockGUI(False)
-
+        MessageBox.Show("Sqlite已保存到普通模式Treeview根目录，右键点击treeview切换普通模式查看")
     End Sub
     Private Sub 压缩索引ToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles 压缩索引ToolStripMenuItem.Click
         If TreeView1.SelectedNode IsNot Nothing AndAlso TypeOf TreeView1.SelectedNode.Tag Is ltfsindex.directory Then
