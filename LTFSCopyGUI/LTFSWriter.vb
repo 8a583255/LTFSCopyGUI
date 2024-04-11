@@ -4662,11 +4662,13 @@ Public Class LTFSWriter
             End If
         End If
     End Sub
-
+    Public Shared ValidStartBlock =0
     Private Sub 仅验证ToolStripMenuItem1_Click(sender As Object, e As EventArgs) Handles 仅验证ToolStripMenuItem1.Click
         If TreeView1.SelectedNode IsNot Nothing Then
             Dim selectedDir As ltfsindex.directory = TreeView1.SelectedNode.Tag
             If IsSqliteTreeView Then
+                ValidStartBlock = Val(InputBox("设置startblock开始位置只校验之后的", “设置”, ValidStartBlock))
+
                 HashSelectedDirWithSqlite(selectedDir)
             Else
                 HashSelectedDir(selectedDir, False, True)
@@ -4953,7 +4955,7 @@ Public Class LTFSWriter
                     .fileoffset = 0,
                     .partition = pos.PartitionNumber}
                     }.ToList()}
-        schema._directory(0).contents._file.Add(fadd)
+
         Dim LastWriteTask As Task = Nothing
         Dim ExitWhileFlag As Boolean = False
         Dim wBufferPtr As IntPtr = Marshal.AllocHGlobal(plabel.blocksize)
@@ -5026,6 +5028,7 @@ Public Class LTFSWriter
                 End While
                 If Flush Then CheckFlush()
                 If Clean Then CheckClean(True)
+           
                 TotalBytesProcessed += BytesReaded
                 CurrentBytesProcessed += BytesReaded
                 TotalBytesUnindexed += BytesReaded
@@ -5038,9 +5041,10 @@ Public Class LTFSWriter
         fadd.SetXattr(ltfsindex.file.xattr.HashType.MD5, sh.MD5Value)
         If LastWriteTask IsNot Nothing Then LastWriteTask.Wait()
         schema.highestfileuid += 1
-
         ms.Close()
+
         IO.File.Delete(tmpf)
+        schema._directory(0).contents._file.Add(fadd)
         TotalFilesProcessed += 1
         CurrentFilesProcessed += 1
 

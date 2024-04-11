@@ -474,9 +474,12 @@ Public Class DirProvider
             Dim c As Integer = 0
             'Dim dir = DirProvider.QueryFileWithWhere($"fileuid={selectedDir.fileuid}", conn)
             DirProvider.QueryFilesSha1AndMd5(LW, $"{selectedDir.fullpath}%", conn, Sub(f As ltfsindex.file, count As Integer)
-
+                c += 1
+                    if LW.ValidStartBlock>0 AndAlso f.extentinfo.count>0 AndAlso f.extentinfo(0).startblock < LW.ValidStartBlock Then
+                        return
+                    End If
                                                                                        'LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
-                                                                                       c += 1
+                                                                                  
                                                                                        Metric.OperationCounter.WithLabels("HashSelectedDirWithSqlite").Inc()
                                                                                        LW.PrintMsg($"{My.Resources.ResText_Hashing} [{c}/{count}] {Path.GetFileName(f.fullpath)} {My.Resources.ResText_Size}:{IOManager.FormatSize(f.length)}", False,
                     $"{My.Resources.ResText_Hashing} [{c}/{count}] {f.fullpath} { My.Resources.ResText_Size}:{f.length}")
@@ -524,19 +527,22 @@ Public Class DirProvider
     '查询文件信息
     Public Shared Sub QueryFilesSha1AndMd5(LW As LTFSWriter, pattern As String, connection As SQLiteConnection,
                                            action As Action(Of ltfsindex.file, Integer))
-        Dim queryCountCommand As New SQLiteCommand(
-            $"SELECT count(1)  FROM ltfs_index WHERE FullPath like '{pattern}' and IsDirectory=0 and length>0 ",
-            connection)
+        Dim pathWhere= $" FullPath like '{pattern}' and "
+        if pattern = "%" Then
+            pathWhere = ""
+        End If
+        
+        Dim queryCountCommand As New SQLiteCommand($"SELECT count(1)  FROM ltfs_index WHERE {pathWhere}   length>0 ",connection)
         Dim count As Integer = CInt(queryCountCommand.ExecuteScalar())
         Dim stopFlag As Boolean = False
         Dim queryCommand As New SQLiteCommand(
-            $"SELECT fileuid,FullPath,Length,extent,extendedattributes FROM ltfs_index WHERE FullPath like '{pattern _
-                                                 }' and IsDirectory=0 and length>0 order by startblock asc",
+            $"SELECT fileuid,FullPath,Length,extent,extendedattributes FROM ltfs_index WHERE {pathWhere}  length>0 order by startblock asc",
             connection)
 
         Dim reader As SQLiteDataReader = queryCommand.ExecuteReader()
         LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
         While reader.Read()
+           
             Metric.OperationCounter.WithLabels("QueryFilesSha1AndMd5").Inc()
             Dim f As ltfsindex.file = New ltfsindex.file()
             f.fullpath = reader("FullPath").ToString()
@@ -552,6 +558,7 @@ Public Class DirProvider
                                                     JsonConvert.DeserializeObject (Of List(Of ltfsindex.file.xattr))(
                                                         reader("extendedattributes"))
                 End Sub, {"", "QueryFilesSha1AndMd5_DeserializeObject", ""})
+              
             Else
                 f.length = 0
             End If
