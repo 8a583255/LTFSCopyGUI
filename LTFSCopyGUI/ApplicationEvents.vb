@@ -612,7 +612,9 @@ dataDir:{dataDir}
                     End Select
                 Next
             End If
-           
+            If Me.MainForm is Nothing Then
+                    Me.MainForm = New LTFSConfigurator()
+            End If
             System.Windows.Forms.Application.EnableVisualStyles()
             System.Windows.Forms.Application.Run(Me.MainForm)
         End Sub

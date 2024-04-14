@@ -902,7 +902,12 @@ Public Class LTFSMountFSSqliteBase
                     While Not succ
                         Try
                             Dim startTimestamp = DateTime.Now
-
+                            Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")}  【Write】  {Barcode} LW.DataPartitionRemainCapacity： {LW.DataPartitionRemainCapacity} ")
+                            if LW.DataPartitionRemainCapacity < 4*1024*1024*1024L Then
+                                    LW.PrintMsg($"剩余空间不足,{LW.DataPartitionRemainCapacity}", ForceLog:=True, Warning:=True)
+                                Return STATUS_FT_WRITE_FAILURE
+                                Throw new Exception("剩余空间不足")
+                            End If
                             sense = TapeUtils.Write(TapeDrive, buffer + writeOffset, writelength)
                             Dim duration As TimeSpan = DateTime.Now - startTimestamp
                             Metric.FileOperationDurationHistogram.WithLabels(Barcode, "Tape_Write", "").Observe(duration.TotalMilliseconds)
@@ -1143,7 +1148,11 @@ Public Class LTFSMountFSSqliteBase
                 fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.SHA1, fileDesc.Sh.SHA1Value)
                 fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.MD5, fileDesc.Sh.MD5Value)
                 fileDesc.Sh.StopFlag = True
-                DirProvider.InsertFile(fileDesc.LTFSFile, Path.GetDirectoryName(fileDesc.LTFSFile.fullpath), LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
+                Dim parentPath=Path.GetDirectoryName(fileDesc.LTFSFile.fullpath)
+                if parentPath = "\" Then
+                    parentPath = ""
+                End If
+                DirProvider.InsertFile(fileDesc.LTFSFile, parentPath, LW.GetSqliteConnection(LW.Barcode), LW.Barcode)
             else if fileDesc.LTFSFile.length = 0 Then
                 Metric.OperationCounter.WithLabels("hashfile_finish").Inc()
                 fileDesc.LTFSFile.SetXattr(ltfsindex.file.xattr.HashType.SHA1, "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709")

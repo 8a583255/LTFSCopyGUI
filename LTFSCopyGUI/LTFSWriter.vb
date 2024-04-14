@@ -311,6 +311,7 @@ Public Class LTFSWriter
         ToolStripStatusLabel5.Text = Text5
         ToolStripStatusLabel5.Text = Text5.Substring(0, Math.Min(Text5.Length, 20))
     End Sub
+    Public Shared LogFileLocker As New Object
     Public Sub PrintMsg(s As String, Optional ByVal Warning As Boolean = False, Optional ByVal TooltipText As String = "", Optional ByVal LogOnly As Boolean = False, Optional ByVal ForceLog As Boolean = False)
         Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} Warning:{Warning} printmsg:{s},TooltipText:{TooltipText} LogOnly:{LogOnly} ForceLog:{ForceLog}")
 
@@ -324,10 +325,12 @@ Public Class LTFSWriter
             If Not IO.Directory.Exists(IO.Path.Combine(Application.StartupPath, "log")) Then
                 IO.Directory.CreateDirectory(IO.Path.Combine(Application.StartupPath, "log"))
             End If
+            SyncLock LogFileLocker
             IO.File.AppendAllText(logFile, $"{vbCrLf}{Now.ToString("yyyy-MM-dd HH:mm:ss")} {logType}> {s} {ExtraMsg}")
             If Warning Then
                 IO.File.AppendAllText(errorLogFile, $"{vbCrLf}{Now.ToString("yyyy-MM-dd HH:mm:ss")} {logType}> {s} {ExtraMsg}")
             End If
+            End SyncLock
         End If
 
         If LogOnly Then Exit Sub
@@ -560,6 +563,7 @@ Public Class LTFSWriter
             Metric.OperationProcessedGauge.WithLabels(Barcode, "UnwrittenCount").Set(UnwrittenCount)
             Metric.OperationProcessedGauge.WithLabels(Barcode, "UnwrittenSize").Set(UnwrittenSize)
             Metric.OperationProcessedGauge.WithLabels("", "async_sha_queue_count").Set(IOManager.CheckSumBlockwiseCalculator.TotalQueueCount)
+            RefreshCapacity()
             Text = GetLocInfo()
             Static GCCollectCounter As Integer
             GCCollectCounter += 1
@@ -996,10 +1000,14 @@ Public Class LTFSWriter
         For i As Integer = 0 To b.Length - 1
             b(i) = 255
         Next
-        For i As Integer = 0 To value / maximum * 100
-            b(i * 3 + 0) = color.B
-            b(i * 3 + 1) = color.G
-            b(i * 3 + 2) = color.R
+        For i As Integer = 0 To value / maximum * 99
+            Try
+                b(i * 3 + 0) = color.B
+                b(i * 3 + 1) = color.G
+                b(i * 3 + 2) = color.R
+            Catch ex As Exception
+                Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} b.length={b.Length} i={i} value={value} maximum={maximum} {ex.Message} {ex.StackTrace}")
+            End Try
         Next
         Marshal.Copy(b, 0, bd.Scan0, b.Length)
         result.UnlockBits(bd)
@@ -1007,7 +1015,8 @@ Public Class LTFSWriter
     End Function
     Public MaxCapacity As Long = 0
     Public CapacityLogPage As TapeUtils.PageData
-
+    Public Shared DataPartitionRemainCapacity As Long
+    Public Shared DataPartitionRemainCapacityLocker As New Object
     Public Sub RefreshCapacity()
         Dim logdata As Byte()
         logdata = TapeUtils.LogSense(TapeDrive, &H31, PageControl:=1)
@@ -1145,6 +1154,9 @@ Public Class LTFSWriter
                            Else
                                ToolStripStatusLabel2.BackgroundImage = GetProgressImage(MaxCapacity - cap1, MaxCapacity, Color.FromArgb(255, 127, 127))
                            End If
+                           SyncLock DataPartitionRemainCapacityLocker
+                               DataPartitionRemainCapacity=cap1 << lshbits
+                           End SyncLock
                        Else
                            MaxCapacity = max0
                            If MaxCapacity = 0 Then MaxCapacity = TapeUtils.MAMAttribute.FromTapeDrive(TapeDrive, 0, 1, 0).AsNumeric
@@ -1155,6 +1167,9 @@ Public Class LTFSWriter
                            Else
                                ToolStripStatusLabel2.BackgroundImage = GetProgressImage(MaxCapacity - cap0, MaxCapacity, Color.FromArgb(255, 127, 127))
                            End If
+                           SyncLock DataPartitionRemainCapacityLocker
+                               DataPartitionRemainCapacity=cap0 << lshbits
+                           End SyncLock
                        End If
                        If My.Settings.LTFSWriter_ShowLoss Then
                            ToolStripStatusLabel2.Text &= $" Loss:{IOManager.FormatSize(loss)}"
@@ -1162,6 +1177,7 @@ Public Class LTFSWriter
                        End If
                        LastRefresh = Now
                    Catch ex As Exception
+                       Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")} {ex.Message} {ex.StackTrace}")
                        PrintMsg(My.Resources.ResText_RCErr)
                    End Try
                End Sub)
@@ -1621,6 +1637,7 @@ Public Class LTFSWriter
         CurrentPos = GetPos
         CurrentHeight = CurrentPos.BlockNumber
         PrintMsg($"Position = {CurrentPos.ToString()}", LogOnly:=True)
+        DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode, CurrentHeight,_TotalBytesUnindexed)
         Modified = ExtraPartitionCount > 0
     End Sub
     Public Sub RefreshIndexPartition()
@@ -3294,6 +3311,7 @@ Public Class LTFSWriter
                     Dim p As TapeUtils.PositionData = GetPos
                     PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
                     CurrentHeight = p.BlockNumber
+                    DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode, CurrentHeight,_TotalBytesUnindexed)
                     If ExtraPartitionCount = 0 Then
                         TapeUtils.Write(TapeDrive, {0})
                         PrintMsg($"Byte written", LogOnly:=True)
@@ -3364,6 +3382,7 @@ Public Class LTFSWriter
                     Dim p As TapeUtils.PositionData = GetPos
                     PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
                     CurrentHeight = p.BlockNumber
+                    DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode, CurrentHeight,_TotalBytesUnindexed)
                     While True
                         Threading.Thread.Sleep(0)
                         SyncLock UFReadCount
@@ -3493,7 +3512,9 @@ Public Class LTFSWriter
 
                         If ExtraPartitionCount = 0 Then
                             IndexPartition = 255
+                            PrintMsg($"TO EOD 之前 Position = {GetPos.ToString()}", LogOnly:=True)
                             TapeUtils.Locate(TapeDrive, 0, 0, TapeUtils.LocateDestType.EOD)
+'                            TapeUtils.Locate(TapeDrive,  44332 ,1, TapeUtils.LocateDestType.Block)
                             PrintMsg($"Position = {GetPos.ToString()}", LogOnly:=True)
                             PrintMsg(My.Resources.ResText_RI)
                             If DisablePartition Then
@@ -3794,13 +3815,8 @@ Public Class LTFSWriter
         Dim UsedSpace As String
         Dim cmData As New TapeUtils.CMParser(TapeDrive)
         Try
-
             Dim CMReport As String = cmData.GetReport(UsedSpace)
-            Dim outputfileCM As String = $"cm\{Barcode}\LTFSIndex_Autosave_{FileName _
-            }_GEN{schema.generationnumber _
-            }_P{schema.location.partition _
-            }_B{schema.location.startblock _
-            }_{UsedSpace}_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.cm"
+            Dim outputfileCM As String = $"cm\{Barcode}\LTFSIndex_Autosave_{FileName }_GEN{schema.generationnumber}_P{schema.location.partition}_B{schema.location.startblock}_{UsedSpace}_{Now.ToString("yyyyMMdd_HHmmss.fffffff")}.cm"
             If CMReport.Length > 0 Then IO.File.WriteAllText(outputfileCM, CMReport)
         Catch ex As Exception
             PrintMsg(ex.Message + vbCrLf + ex.StackTrace, LogOnly:=True)
@@ -4040,7 +4056,13 @@ Public Class LTFSWriter
         PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
         Dim Pos As Long = p.BlockNumber
         If MessageBox.Show($"{My.Resources.ResText_SetH1}{Pos}{My.Resources.ResText_SetH2}{vbCrLf}{My.Resources.ResText_SetH3}", My.Resources.ResText_Confirm, MessageBoxButtons.OKCancel) = DialogResult.OK Then
+            If CurrentHeight>Pos Then
+               if MessageBox.Show($"当前操作{Pos}比高度为｛CurrentHeight｝小，会导致高度后的数据丢失，是否继续？", My.Resources.ResText_Confirm, MessageBoxButtons.OKCancel) <> DialogResult.OK then
+                   return
+               ENd if
+            ENd if
             CurrentHeight = Pos
+            DirProvider.UpdateCurrentHeightWithForce(GetSqliteConnection(Barcode), Barcode, CurrentHeight,_TotalBytesUnindexed,True)
         End If
     End Sub
     Private Sub 定位到起始块ToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles 定位到起始块ToolStripMenuItem.Click
@@ -4981,6 +5003,10 @@ Public Class LTFSWriter
                 While Not succ
                     Dim sense As Byte()
                     Try
+                        if DataPartitionRemainCapacity < 4*1024*1024*1024L Then
+                            PrintMsg($"剩余空间不足,{DataPartitionRemainCapacity}", ForceLog:=True, Warning:=True)
+                            Throw new Exception("剩余空间不足")
+                        End If
                         sense = TapeUtils.Write(TapeDrive, wBufferPtr, BytesReaded, True)
                         SyncLock pos
                             pos.BlockNumber += 1
@@ -5196,6 +5222,7 @@ Public Class LTFSWriter
                          If pos.EOP Then PrintMsg(My.Resources.ResText_EWEOM, True)
                          PrintMsg($"Position = {p.ToString()}", LogOnly:=True)
                          CurrentHeight = pos.BlockNumber
+                         DirProvider.UpdateCurrentHeight(GetSqliteConnection(Barcode), Barcode, CurrentHeight,_TotalBytesUnindexed)
                          Invoke(Sub() 更新数据区索引ToolStripMenuItem.Enabled = True)
                          TapeUtils.Flush(TapeDrive)
                          TapeUtils.ReleaseUnit(TapeDrive)

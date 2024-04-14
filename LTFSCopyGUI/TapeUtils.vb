@@ -555,7 +555,7 @@ Public Class TapeUtils
         Dim Add_Code As UInt16 = CInt(sense(12)) << 8 Or sense(13)
         If Add_Code <> 0 Then
             If DestType = LocateDestType.EOD Then
-                If Not ReadPosition(TapeDrive).EOP Then
+                If Not ReadPosition(TapeDrive).EOD Then
                     SendSCSICommand(TapeDrive, {&H11, 3, 0, 0, 0, 0}, Nothing, 1, Function(senseData As Byte()) As Boolean
                                                                                       sense = senseData
                                                                                       Return True
@@ -4292,7 +4292,8 @@ Public Class TapeUtils
             writer.Serialize(t, Me)
             Return sb.ToString()
         End Function
-        Public Function GetReport() As String
+        Public Function GetReport(ByRef UsedSpace As String) As String
+            Dim SizeInt As Int64 = 0
             Dim Output As New StringBuilder
             Output.Append("+=========================== APPLICATION INFO ============================+" & vbCrLf)
             Try
@@ -4510,9 +4511,11 @@ Public Class TapeUtils
 
                         Dim WrittenSize As String = ""
                         If DataSize.Count = DataWrapList.Count Then
-                            WrittenSize = $"{IOManager.FormatSize(DataSize(i) * Me.CartridgeMfgData.KB_PER_DATASET * 1024, True)} / "
+                            SizeInt = DataSize(i) * Me.CartridgeMfgData.KB_PER_DATASET * 1024
+                            WrittenSize = $"{IOManager.FormatSize(SizeInt, True)}({SizeInt} B) / "
                         End If
-                        Output.Append（($"| Partition {i} size: ".PadRight(28) & (WrittenSize & ReduceDataUnit(len)).PadRight(24) & $"[{nWrap.ToString().PadLeft(3)} wraps]").PadRight(74) & "|" & vbCrLf)
+                        UsedSpace = UsedSpace & $"p{i}_{IOManager.FormatSize(SizeInt, True)}_{ReduceDataUnit(len)}"
+                        Output.Append(($"| Partition {i} size: ".PadRight(28) & (WrittenSize & ReduceDataUnit(len) & $"({len} MiB)").PadRight(24) & $"[{nWrap.ToString().PadLeft(3)} wraps]").PadRight(74) & "|" & vbCrLf)
                     Next
                 Catch ex As Exception
                     Output.Append("Partition page not available" & vbCrLf)

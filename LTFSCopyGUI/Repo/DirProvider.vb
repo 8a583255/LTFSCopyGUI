@@ -245,11 +245,13 @@ Public Class DirProvider
                 throw new Exception("ltfs_index_info table has no record")
         End If
     End Sub
-    
     Public Shared Sub UpdateCurrentHeight(connection As SQLiteConnection, BarCode As String,currentHeight As Int64,totalBytesUnindexed As Int64)
+        UpdateCurrentHeightWithForce(connection, BarCode,currentHeight,totalBytesUnindexed,False)
+    End Sub
+    Public Shared Sub UpdateCurrentHeightWithForce(connection As SQLiteConnection, BarCode As String,currentHeight As Int64,totalBytesUnindexed As Int64,isForce As Boolean)
         Dim ltfsindexInfoDto = GetLTFSIndexInfo(connection, BarCode)
         If ltfsindexInfoDto IsNot Nothing Then
-            if ltfsindexInfoDto.currentHeight >= currentHeight Then
+            if ltfsindexInfoDto.currentHeight >= currentHeight AndAlso Not isForce Then
                 throw new Exception($"currentHeight is less than current currentHeight,ltfsindexInfoDto.currentHeight:{ltfsindexInfoDto.currentHeight} ,currentHeight:{currentHeight}")
             End If
             Dim updateCommand As New SQLiteCommand("update ltfs_index_info set current_height=@current_height,TotalBytesUnindexed=@totalBytesUnindexed ",connection)
