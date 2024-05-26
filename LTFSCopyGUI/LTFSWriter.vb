@@ -891,6 +891,7 @@ Public Class LTFSWriter
         End Get
     End Property
     Public LastRefresh As Date = Now
+    Public LastLossRefresh As Date = Now
     Private Sub LTFSWriter_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         StartRefreshThread()
         FileDroper = New FileDropHandler(ListView1)
@@ -900,6 +901,9 @@ Public Class LTFSWriter
         Dim 保存最新Sqlite到索引ToolStripMenuItem As New ToolStripMenuItem("保存最新Sqlite到磁带")
         AddHandler 保存最新Sqlite到索引ToolStripMenuItem.Click, AddressOf 保存最新Sqlite到索引ToolStripMenuItem_Click
         Me.数据操作ToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {将schema文件列表导入sqliteMenuItem, 保存最新Sqlite到索引ToolStripMenuItem})
+        Dim 调整即将满容限制大小ToolStripMenuItem As New ToolStripMenuItem("调整即将满容限制大小")
+        AddHandler 调整即将满容限制大小ToolStripMenuItem.Click, AddressOf 调整即将满容限制大小ToolStripMenuItem_Click
+        Me.自动化ToolStripMenuItem1.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {调整即将满容限制大小ToolStripMenuItem})
         Dim 切换IsSqliteViewMenu As New ToolStripMenuItem("Treeview模式切换")
 
         AddHandler 切换IsSqliteViewMenu.Click, AddressOf TreeMode_Click
@@ -1016,7 +1020,9 @@ Public Class LTFSWriter
     Public MaxCapacity As Long = 0
     Public CapacityLogPage As TapeUtils.PageData
     Public Shared DataPartitionRemainCapacity As Long
+    Public Shared DataPartitionRemainCapacityLimit As Long=4*1024*1024*1024L
     Public Shared DataPartitionRemainCapacityLocker As New Object
+    Public Shared loss As Long
     Public Sub RefreshCapacity()
         Dim logdata As Byte()
         logdata = TapeUtils.LogSense(TapeDrive, &H31, PageControl:=1)
@@ -1101,9 +1107,9 @@ Public Class LTFSWriter
                        Next
 
                        'cap0 = TapeUtils.MAMAttribute.FromTapeDrive(TapeDrive, 0, 0, 0).AsNumeric
-                       Dim loss As Long
-
-                       If My.Settings.LTFSWriter_ShowLoss Then
+        
+                       If My.Settings.LTFSWriter_ShowLoss AndAlso  CapacityRefreshInterval > 0 AndAlso (Now - LastLossRefresh).TotalSeconds > CapacityRefreshInterval Then
+                           LastLossRefresh=Now
                            Dim CMInfo As New TapeUtils.CMParser(TapeDrive)
                            Dim nLossDS As Long = 0
                            Dim DataSize As New List(Of Long)
@@ -4924,7 +4930,15 @@ Public Class LTFSWriter
         My.Settings.LTFSWriter_ShowLoss = Not My.Settings.LTFSWriter_ShowLoss
         右下角显示容量损失ToolStripMenuItem.Checked = My.Settings.LTFSWriter_ShowLoss
         My.Settings.Save()
-    End Sub
+    End Sub   
+    Private Sub 调整即将满容限制大小ToolStripMenuItem_Click(sender As Object, e As EventArgs)
+        Dim result As String = InputBox($"调整即将满容限制大小,当前为{DataPartitionRemainCapacityLimit}", "确认", DataPartitionRemainCapacityLimit)
+         Select Case MessageBox.Show(“确认调整？", "确认", MessageBoxButtons.YesNoCancel)
+                                    Case DialogResult.Yes
+                                        DataPartitionRemainCapacityLimit=Convert.ToInt64(result)
+                                End Select
+        
+    End Sub   
     Private Sub 保存最新Sqlite到索引ToolStripMenuItem_Click(sender As Object, e As EventArgs)
         LockGUI(True)
         SyncLock SqliteLock
@@ -5003,7 +5017,7 @@ Public Class LTFSWriter
                 While Not succ
                     Dim sense As Byte()
                     Try
-                        if DataPartitionRemainCapacity < 4*1024*1024*1024L Then
+                        if DataPartitionRemainCapacity < DataPartitionRemainCapacityLimit Then
                             PrintMsg($"剩余空间不足,{DataPartitionRemainCapacity}", ForceLog:=True, Warning:=True)
                             Throw new Exception("剩余空间不足")
                         End If

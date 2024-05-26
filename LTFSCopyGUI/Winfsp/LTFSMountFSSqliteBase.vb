@@ -715,10 +715,15 @@ Public Class LTFSMountFSSqliteBase
                             "yyyy-MM-ddTHH:mm:ss.fffffff00Z")
                 End If
                 If lastWriteTime > 0 Then
-                    fileDesc.LTFSFile.modifytime =
-                        DateTimeOffset.FromFileTime(lastWriteTime).ToUniversalTime.ToString(
-                            "yyyy-MM-ddTHH:mm:ss.fffffff00Z")
-                    fileDesc.LTFSFile.changetime = fileDesc.LTFSFile.modifytime
+                    try
+                        fileDesc.LTFSFile.modifytime =
+                            DateTimeOffset.FromFileTime(lastWriteTime).ToUniversalTime.ToString(
+                                "yyyy-MM-ddTHH:mm:ss.fffffff00Z")
+                        fileDesc.LTFSFile.changetime = fileDesc.LTFSFile.modifytime
+                    Catch ex As Exception
+                        Console.WriteLine(ex.Message & ex.StackTrace)
+                        fileDesc.LTFSFile.modifytime = fileDesc.LTFSFile.creationtime
+                    End Try
                 End If
                 If lastAccessTime > 0 Then
                     fileDesc.LTFSFile.accesstime =
@@ -902,8 +907,8 @@ Public Class LTFSMountFSSqliteBase
                     While Not succ
                         Try
                             Dim startTimestamp = DateTime.Now
-                            Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")}  【Write】  {Barcode} LW.DataPartitionRemainCapacity： {LW.DataPartitionRemainCapacity} ")
-                            if LW.DataPartitionRemainCapacity < 4*1024*1024*1024L Then
+'                            Console.WriteLine($"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffffff")}  【Write】  {Barcode} LW.DataPartitionRemainCapacity： {LW.DataPartitionRemainCapacity} ")
+                            if LW.DataPartitionRemainCapacity < LW.DataPartitionRemainCapacityLimit Then
                                     LW.PrintMsg($"剩余空间不足,{LW.DataPartitionRemainCapacity}", ForceLog:=True, Warning:=True)
                                 Return STATUS_FT_WRITE_FAILURE
                                 Throw new Exception("剩余空间不足")
