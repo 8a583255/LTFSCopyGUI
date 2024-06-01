@@ -463,7 +463,59 @@ Public Class DirProvider
             End Sub, {"", "Sqlite_InsertDir", ""})
         End Sub, BarCode)
     End Sub
+    
+    Public Shared Sub 提取SelectedDirWithSqlite(LW As LTFSWriter, selectedDir As ltfsindex.directory,exportPath As String)
 
+        Dim fc As Long = 0, ec As Long = 0
+        LW.PrintMsg(My.Resources.ResText_Hashing)
+
+        Try
+            LW.StopFlag = False
+            Dim conn = LW.GetSqliteConnection(LW.Barcode)
+            Dim ODir As String = IO.Path.Combine(exportPath, selectedDir.name)
+            If Not ODir.StartsWith("\\") Then ODir = $"\\?\{ODir}"
+            If Not IO.Directory.Exists(ODir) Then IO.Directory.CreateDirectory(ODir)
+            
+            Dim c As Integer = 0
+            TapeUtils.ReserveUnit(LW.TapeDrive)
+            TapeUtils.PreventMediaRemoval(LW.TapeDrive)
+            LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
+            'Dim dir = DirProvider.QueryFileWithWhere($"fileuid={selectedDir.fileuid}", conn)
+            DirProvider.QueryFilesWithAction(LW, $"{selectedDir.fullpath}%", conn,Sub(f As ltfsindex.file, count As Integer)
+                    c += 1
+                    if LW.ValidStartBlock>0 AndAlso f.extentinfo.count>0 AndAlso f.extentinfo(0).startblock < LW.ValidStartBlock Then
+                        LW.PrintMsg("空文件",LogOnly := True)
+                    End If
+                                                                                       'LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
+                                                                                  
+                                                                                       Metric.OperationCounter.WithLabels("提取SelectedDirWithSqlite").Inc()
+                                                                                       LW.PrintMsg($"正在提取 [{c}/{count}] {Path.GetFileName(f.fullpath)} {My.Resources.ResText_Size}:{IOManager.FormatSize(f.length)}", False,
+                    $"{My.Resources.ResText_Hashing} [{c}/{count}] {f.fullpath} { My.Resources.ResText_Size}:{f.length}")
+                    If LW.StopFlag Then
+                       Throw New Exception("Stop")
+                    End If
+                Dim exportfilepath=$"{exportPath}" &f.fullpath.Replace(Path.GetDirectoryName(selectedDir.fullpath),"")
+                If Not exportfilepath.StartsWith("\\") Then exportfilepath = $"\\?\{exportfilepath}"
+                if f.isDirectory then 
+                    If Not IO.Directory.Exists(exportfilepath) Then IO.Directory.CreateDirectory(exportfilepath)
+                Else 
+                    LW.RestoreFile(exportfilepath, f)
+                End If
+          
+                 
+                 If LW.StopFlag Then
+                    LW.PrintMsg(My.Resources.ResText_OpCancelled)
+                 End If
+            End Sub)
+
+        Catch ex As Exception
+            LW.Invoke(Sub() MessageBox.Show(ex.ToString))
+            LW.PrintMsg(My.Resources.ResText_HErr, Warning := True)
+        End Try
+
+        LW.UnwrittenSizeOverrideValue = 0
+        LW.UnwrittenCountOverwriteValue = 0
+    End Sub
     Public Shared Sub HashSelectedDirWithSqlite(LW As LTFSWriter, selectedDir As ltfsindex.directory)
 
         Dim fc As Long = 0, ec As Long = 0
@@ -526,6 +578,67 @@ Public Class DirProvider
         LW.UnwrittenSizeOverrideValue = 0
         LW.UnwrittenCountOverwriteValue = 0
     End Sub
+    
+    Public Shared Sub QueryFilesWithAction(LW As LTFSWriter, pattern As String, connection As SQLiteConnection,action As Action(Of ltfsindex.file, Integer))
+        Dim pathWhere= $" FullPath like '{pattern}'  "
+        if pattern = "%" Then
+            pathWhere = ""
+        End If
+    
+        Dim queryCountCommand As New SQLiteCommand($"SELECT count(1)  FROM ltfs_index WHERE {pathWhere} ",connection)
+        Dim count As Integer = CInt(queryCountCommand.ExecuteScalar())
+        Dim stopFlag As Boolean = False
+        Dim queryCommand As New SQLiteCommand(
+            $"SELECT * FROM ltfs_index WHERE {pathWhere} and IsDirectory=1 
+              union all
+              SELECT * FROM ltfs_index WHERE {pathWhere} and IsDirectory=0  order by startblock asc",
+            connection)
+
+        Dim reader As SQLiteDataReader = queryCommand.ExecuteReader()
+        LW.RestorePosition = New TapeUtils.PositionData(LW.TapeDrive)
+         While reader.Read()
+            Dim isDirectory As Boolean = Convert.ToBoolean(reader("IsDirectory"))
+            If isDirectory Then
+                Dim f = New ltfsindex.file()
+                f.isDirectory= True
+                f.fullpath = reader("FullPath").ToString()
+                f.name = reader("Name").ToString()
+                f.creationtime = Convert.ToString(reader("CreationTime"))
+                f.changetime = Convert.ToString(reader("ChangeTime"))
+                f.modifytime = Convert.ToString(reader("ModifyTime"))
+                f.accesstime = Convert.ToString(reader("AccessTime"))
+                f.backuptime = Convert.ToString(reader("BackupTime"))
+                f.fileuid = Convert.ToInt64(reader("fileuid"))
+                action(f, count)
+            Else
+                Dim f = New ltfsindex.file()
+                f.isDirectory= False
+                f.fullpath = reader("FullPath").ToString()
+                f.name = reader("Name").ToString()
+                f.readonly = Convert.ToBoolean(reader("ReadOnly"))
+                f.openforwrite = Convert.ToBoolean(reader("OpenForWrite"))
+                f.creationtime = Convert.ToString(reader("CreationTime"))
+                f.changetime = Convert.ToString(reader("ChangeTime"))
+                f.modifytime = Convert.ToString(reader("ModifyTime"))
+                f.accesstime = Convert.ToString(reader("AccessTime"))
+                f.backuptime = Convert.ToString(reader("BackupTime"))
+                f.fileuid = Convert.ToInt64(reader("fileuid"))
+                If reader("Length") IsNot DBNull.Value Then
+                    f.length = Convert.ToInt64(reader("Length"))
+                    f.extentinfo =
+                        JsonConvert.DeserializeObject (Of List(Of ltfsindex.file.extent))(reader("extent").ToString())
+                    f.extendedattributes =
+                        JsonConvert.DeserializeObject (Of List(Of ltfsindex.file.xattr))(reader("extendedattributes"))
+                Else
+                    f.length = 0
+                End If
+                action(f, count)
+            End If
+         
+
+        End While
+    End Sub
+
     '查询文件信息
     Public Shared Sub QueryFilesSha1AndMd5(LW As LTFSWriter, pattern As String, connection As SQLiteConnection,
                                            action As Action(Of ltfsindex.file, Integer))
@@ -533,12 +646,12 @@ Public Class DirProvider
         if pattern = "%" Then
             pathWhere = ""
         End If
-        
-        Dim queryCountCommand As New SQLiteCommand($"SELECT count(1)  FROM ltfs_index WHERE {pathWhere}   length>0 ",connection)
+    
+        Dim queryCountCommand As New SQLiteCommand($"SELECT count(1)  FROM ltfs_index WHERE {pathWhere} length>0 ",connection)
         Dim count As Integer = CInt(queryCountCommand.ExecuteScalar())
         Dim stopFlag As Boolean = False
         Dim queryCommand As New SQLiteCommand(
-            $"SELECT fileuid,FullPath,Length,extent,extendedattributes FROM ltfs_index WHERE {pathWhere}  length>0 order by startblock asc",
+            $"SELECT fileuid,FullPath,Length,extent,extendedattributes FROM ltfs_index WHERE {pathWhere} length>0  order by startblock asc",
             connection)
 
         Dim reader As SQLiteDataReader = queryCommand.ExecuteReader()
@@ -549,8 +662,8 @@ Public Class DirProvider
             Dim f As ltfsindex.file = New ltfsindex.file()
             f.fullpath = reader("FullPath").ToString()
             f.fileuid = reader("fileuid").ToString()
-
-            If reader("Length") IsNot DBNull.Value Then
+            Console.WriteLine("length:" & reader("Length"))
+            If reader("Length") IsNot DBNull.Value AndAlso reader("Length")>0 Then
                 f.length = Convert.ToInt64(reader("Length"))
                 Metric.FuncFileOperationDuration(Sub()
                     f.extentinfo =

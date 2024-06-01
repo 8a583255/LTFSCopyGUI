@@ -2645,14 +2645,29 @@ Public Class LTFSWriter
         End If
     End Sub
     Private Sub 提取ToolStripMenuItem1_Click(sender As Object, e As EventArgs) Handles 提取ToolStripMenuItem1.Click
+        
         If TreeView1.SelectedNode IsNot Nothing AndAlso FolderBrowserDialog1.ShowDialog = DialogResult.OK Then
-            Dim th As New Threading.Thread(
+            Dim th As Threading.Thread
+            Dim selectedDir As ltfsindex.directory = TreeView1.SelectedNode.Tag
+            if IsSqliteTreeView Then
+                th = New Threading.Thread(Sub()
+                    try
+                        DirProvider.提取SelectedDirWithSqlite(Me,selectedDir,FolderBrowserDialog1.SelectedPath)
+                    catch ex As Exception
+                        PrintMsg($"{My.Resources.ResText_RestoreErr}{ex.ToString}", ForceLog:=True)
+                    end try
+                    LockGUI(False)
+                End Sub
+                )
+            else    
+  
+                th =  New Threading.Thread(
                     Sub()
                         PrintMsg(My.Resources.ResText_Restoring)
                         Try
                             StopFlag = False
                             Dim FileList As New List(Of FileRecord)
-                            Dim selectedDir As ltfsindex.directory = TreeView1.SelectedNode.Tag
+                          
                             Dim IterDir As Action(Of ltfsindex.directory, IO.DirectoryInfo) =
                                 Sub(tapeDir As ltfsindex.directory, outputDir As IO.DirectoryInfo)
                                     For Each f As ltfsindex.file In tapeDir.contents._file
@@ -2726,6 +2741,7 @@ Public Class LTFSWriter
                         UnwrittenCountOverwriteValue = 0
                         LockGUI(False)
                     End Sub)
+            End If
             LockGUI()
             th.Start()
         End If
